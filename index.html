@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#07110f">
+  <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
+  <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
+    <link rel="stylesheet" href="styles.css?v=20260720p1">
+  <link rel="stylesheet" href="radar.css?v=20260720p1">
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">UG</div>
+        <div>
+          <p class="eyebrow">SHELTER AGRICULTURE // UNLICENSED</p>
+          <h1>UNDER<span>GREEN</span></h1>
+        </div>
+      </div>
+      <div class="player-profile">
+        <img src="assets/runtime/characters/protagonist.webp" alt="主人公" decoding="async">
+        <div><small>ILLEGAL GROWER</small><strong>オペレーター</strong></div>
+      </div>
+      <div class="day-counter">
+        <div class="day-readout">
+          <span>OPERATION DAY</span>
+          <strong><b id="day-value">01</b><span id="day-limit"> / DAY45</span></strong>
+          <div class="day-progress"><i id="day-progress-fill"></i></div>
+          <small id="time-remaining">20.0 SEC</small>
+        </div>
+      </div>
+      <button class="icon-button settings-button" id="settings-button" type="button" title="設定" aria-label="設定">⚙</button>
+      <button class="icon-button" id="reset-button" type="button" title="終了" aria-label="終了">⏻</button>
+    </header>
+
+    <section class="news-ticker">
+      <span class="live-dot"></span>
+      <strong>LOWNET NEWS</strong>
+      <div class="ticker-divider"></div>
+      <p id="news-text">通信傍受中... 市場データを復号しています。</p>
+      <span class="news-effect" id="news-effect">NO SIGNAL</span>
+      <button class="news-history-button" id="news-history-button" type="button">履歴</button>
+    </section>
+
+    <section class="resource-strip" aria-label="保有資源">
+      <div class="resource-card credit">
+        <img class="resource-image" src="assets/icons/credit.webp" alt="">
+        <div><small>CREDITS</small><strong id="money-value">500</strong></div>
+      </div>
+      <div class="resource-card" id="water-card">
+        <img class="resource-image" src="assets/icons/water.webp" alt="">
+        <div><small>WATER <b id="water-alert"></b></small><strong><span id="water-value">20</span><i id="water-capacity"> / 20</i></strong></div>
+      </div>
+      <div class="resource-card" id="nutrient-card">
+        <img class="resource-image" src="assets/icons/nutrient.webp" alt="">
+        <div><small>NUTRIENT <b id="nutrient-alert"></b></small><strong><span id="nutrient-value">20</span><i id="nutrient-capacity"> / 20</i></strong></div>
+      </div>
+      <div class="resource-card">
+        <span class="resource-icon">⌁</span>
+        <div><small>DAILY COST</small><strong>₡ <span id="upkeep-value">10</span></strong></div>
+      </div>
+      <div class="resource-card">
+        <img class="resource-image" src="assets/icons/shelf.webp" alt="">
+        <div><small>GROW CAPACITY</small><strong><span id="slot-value">0</span><i> SLOT</i></strong></div>
+      </div>
+      <div class="resource-card radar-suspicion-card" id="radar-suspicion-card">
+        <span class="resource-icon radar-suspicion-icon" aria-hidden="true">!</span>
+        <div class="radar-suspicion-readout">
+          <small>警戒度 <b id="radar-suspicion-label">CLEAR</b></small>
+          <strong><span id="radar-suspicion-value">0</span><i> / 100</i></strong>
+          <span class="radar-suspicion-meter" aria-hidden="true"><i id="radar-suspicion-fill"></i></span>
+        </div>
+      </div>
+    </section>
+
+    <nav class="tabs" aria-label="ゲーム画面">
+      <button class="tab active" data-tab="farm"><span>01</span>栽培区画</button>
+      <button class="tab" data-tab="market"><span>02</span>闇市場</button>
+      <button class="tab" data-tab="shop"><span>03</span>調達端末</button>
+      <button class="tab" data-tab="labor"><span>04</span>労務管理</button>
+      <button class="tab" data-tab="schedule"><span>05</span>予定表</button>
+      <button class="tab" data-tab="broker"><span>06</span>不動産ブローカー</button>
+      <button class="tab" data-tab="radio"><span>07</span>ラジオ</button>
+      <button class="tab" data-tab="info"><span>08</span>情報</button>
+    </nav>
+
+    <main>
+      <section class="screen active" id="farm-screen">
+        <div class="screen-heading">
+          <div>
+            <h2>栽培区画</h2>
+          </div>
+          <div class="heading-stats" id="farm-summary"></div>
+        </div>
+        <div class="farm-layout">
+          <div class="facility-workspace">
+            <article class="base-banner" id="base-banner"></article>
+            <div class="facility-grid-shell">
+              <div class="facility-grid-toolbar" id="facility-grid-toolbar"></div>
+              <div class="facility-clean-tools" aria-label="清掃ツール">
+                <span class="tool-palette-label">TOOLBOX</span>
+                <button class="clean-tool-button tool-brush" data-clean-tool="brush" data-tooltip="BRUSH // こすって清掃" type="button" aria-label="ブラシ" title="ブラシ // こすって清掃">
+                  <img class="clean-tool-icon" src="assets/icons/clean-brush.webp?v=2" alt="" draggable="false">
+                </button>
+                <button class="clean-tool-button tool-bucket" data-clean-tool="bucket" data-tooltip="BUCKET // 水で洗浄" type="button" aria-label="バケツ" title="バケツ // 水で洗浄">
+                  <img class="clean-tool-icon" src="assets/icons/clean-bucket.webp?v=2" alt="" draggable="false">
+                </button>
+              </div>
+              <div class="facility-grid" id="facility-grid"></div>
+              <div class="selected-unit-panel" id="selected-unit-panel"></div>
+            </div>
+          </div>
+          <aside class="side-panel">
+            <div class="panel-title">
+              <span>INSTALLATION STOCK</span>
+              <small>設備を選んで配置</small>
+            </div>
+            <div id="placement-palette" class="placement-palette"></div>
+            <div class="panel-title">
+              <span>SEED VAULT</span>
+              <small>植える種を選択</small>
+            </div>
+            <div id="seed-selector" class="seed-selector"></div>
+            <p class="help-text">種を空きスロットへ、設備をグリッドへドラッグして操作できます。クリック操作も併用できます。</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="screen" id="market-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">BLACK MARKET EXCHANGE</p>
+            <h2>闇市場</h2>
+          </div>
+          <div class="heading-stats" id="inventory-summary"></div>
+        </div>
+        <div class="market-selector" id="market-selector"></div>
+        <div class="price-board">
+          <div class="section-label"><span>LIVE QUOTES</span><small>TODAY UNIT / B QUALITY</small></div>
+          <div class="market-signal-row" id="market-signal-row"></div>
+          <div class="price-grid" id="price-grid"></div>
+        </div>
+        <div class="inventory-panel">
+          <div class="section-label inventory-section-label">
+            <span>HARVEST INVENTORY</span>
+            <div class="inventory-sale-actions">
+              <small>SELECT STOCK TO SELL</small>
+              <button class="sell-all-button" id="sell-all-button" data-sell-all type="button" disabled>
+                <span data-sell-all-label>一括売却</span>
+                <strong data-sell-all-value>NO STOCK</strong>
+              </button>
+            </div>
+          </div>
+          <div id="inventory-list"></div>
+        </div>
+      </section>
+
+
+      <section class="screen" id="schedule-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">LOWNET RUMOR CALENDAR</p>
+            <h2>月間スケジュール</h2>
+          </div>
+          <div class="heading-stats" id="schedule-summary"></div>
+        </div>
+        <div class="schedule-layout">
+          <section class="schedule-console">
+            <div class="section-label"><span>MONTHLY GRID</span><small>聞き取った噂の一覧</small></div>
+            <div class="schedule-calendar" id="schedule-calendar"></div>
+          </section>
+          <aside class="schedule-briefing">
+            <div class="section-label"><span>OPERATOR NOTES</span><small>噂に対する主人公のコメント</small></div>
+            <div id="schedule-briefing-list"></div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="screen" id="shop-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">PROCUREMENT TERMINAL</p>
+            <h2>調達端末</h2>
+          </div>
+          <div class="heading-stats"><span>接続先</span><strong>廃棄区画 NODE-17</strong></div>
+        </div>
+        <div class="contact-panel broker-panel">
+          <img src="assets/runtime/characters/seed-broker.webp" alt="種ブローカーのマラ" loading="lazy" decoding="async">
+          <div>
+            <p class="eyebrow">ENCRYPTED VENDOR // MARA</p>
+            <h3>種ブローカー「マラ」</h3>
+            <p>「種は記憶だよ。育てられる者にだけ、旧世界は芽を出す。」</p>
+          </div>
+          <span>TRUSTED CONTACT</span>
+        </div>
+        <div class="shop-category-carousel" id="shop-category-tabs" aria-label="調達カテゴリ"></div>
+        <div class="shop-section shop-category-panel">
+          <div class="section-label" id="shop-category-label"></div>
+          <div class="shop-grid procurement-grid" id="procurement-shop"></div>
+        </div>
+      </section>
+
+      <section class="screen" id="broker-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">ILLEGAL PROPERTY EXCHANGE</p>
+            <h2>不動産ブローカー</h2>
+          </div>
+          <div class="heading-stats" id="property-summary"></div>
+        </div>
+        <div class="contact-panel property-contact">
+          <img src="assets/runtime/characters/property-broker-black.webp" alt="不動産ブローカー" loading="lazy" decoding="async">
+          <div>
+            <p class="eyebrow">UTILITY SPACE BROKER // KIDO</p>
+            <h3>地下不動産仲介人「キド」</h3>
+            <p>管理局の台帳から消えた空間だけを扱う。物件名、面積、契約条件は訪れるたびに変化する。</p>
+          </div>
+          <button class="secondary-button" id="refresh-properties">物件を更新 ₡100</button>
+        </div>
+        <div class="property-grid" id="property-list"></div>
+      </section>
+
+      <section class="screen" id="radio-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">AUDIO CONSOLE</p>
+            <h2>ラジオ</h2>
+          </div>
+          <div class="heading-stats" id="radio-summary"></div>
+        </div>
+        <div class="radio-layout">
+          <section class="radio-console">
+            <div class="section-label"><span>NOISE CONTROL</span><small>環境音レイヤー</small></div>
+            <button class="noise-cancel-toggle" id="noise-cancel-toggle" type="button">
+              <span>NOISE CANCELING</span>
+              <strong id="noise-cancel-state">OFF</strong>
+            </button>
+            <div class="ambient-layer-list" id="ambient-layer-list"></div>
+          </section>
+          <section class="radio-console">
+            <div class="section-label"><span>RADIO CHANNELS</span><small>CSVで番組追加</small></div>
+            <div class="radio-program-list" id="radio-program-list"></div>
+          </section>
+        </div>
+      </section>
+      <section class="screen" id="labor-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">ROBOT WORKFORCE CONTROL</p>
+            <h2>労務管理</h2>
+          </div>
+          <div class="heading-stats" id="labor-summary"></div>
+        </div>
+        <div class="labor-layout">
+          <aside class="labor-roster-panel">
+            <div class="section-label"><span>SUPPORT UNITS</span><small>個体を選択</small></div>
+            <div class="labor-robot-list" id="labor-robot-list"></div>
+            <div class="labor-robot-detail" id="labor-robot-detail"></div>
+          </aside>
+          <section class="blueprint-console">
+            <div class="blueprint-toolbar">
+              <div>
+                <p class="eyebrow">BEHAVIOR BLUEPRINT</p>
+                <strong id="blueprint-robot-label">NO UNIT</strong>
+              </div>
+              <div class="blueprint-toolbar-actions">
+                <button class="secondary-button" data-blueprint-center type="button" title="表示を中央に戻す">CENTER</button>
+                <label class="labor-tooltip-toggle" title="労務管理の説明表示を切り替え">
+                  <span>TOOLTIPS</span>
+                  <input data-labor-tooltip-toggle type="checkbox" checked aria-label="ツールチップ表示">
+                  <i aria-hidden="true"></i>
+                  <strong data-labor-tooltip-state>ON</strong>
+                </label>
+              </div>
+            </div>
+
+            <div class="blueprint-workbench">
+              <div class="labor-blueprint-editor" id="labor-blueprint-editor" aria-label="サポートロボットのブループリント編集領域">
+                <div class="labor-blueprint-world" id="labor-blueprint-world">
+                  <svg class="labor-blueprint-wires" id="labor-blueprint-wires" aria-hidden="true"></svg>
+                  <div id="labor-blueprint-nodes"></div>
+                </div>
+                <div class="blueprint-empty-hint" id="blueprint-empty-hint">START SIGNAL UNROUTED</div>
+              </div>
+              <aside class="blueprint-palette-panel">
+                <div class="section-label"><span>NODE LIBRARY</span><small>複数配置可</small></div>
+                <details class="blueprint-package-panel" open>
+                  <summary data-blueprint-package-toggle>
+                    <span>NODE PACKAGE</span>
+                    <small>PRESET</small>
+                  </summary>
+                  <div class="blueprint-package-list" data-blueprint-package-list></div>
+                </details>
+                <div class="blueprint-node-palette" id="blueprint-node-palette"></div>
+                <p class="blueprint-palette-note">FLOW GRAPH // PER-UNIT PROGRAM</p>
+              </aside>
+            </div>
+          </section>
+        </div>
+      </section>
+      <section class="screen" id="info-screen">
+        <div class="screen-heading">
+          <div>
+            <p class="eyebrow">ARCHIVE / FIELD NOTES</p>
+            <h2>情報</h2>
+          </div>
+          <div class="heading-stats" id="info-summary"></div>
+        </div>
+        <div class="info-layout">
+          <aside class="info-library">
+            <div class="section-label"><span>BOOKS</span><small>CSVで本を追加</small></div>
+            <div class="info-book-list" id="info-book-list"></div>
+          </aside>
+          <aside class="info-entry-panel">
+            <div class="section-label"><span>INDEX</span><small>項目を選択</small></div>
+            <div class="info-entry-list" id="info-entry-list"></div>
+          </aside>
+          <section class="info-reader" id="info-detail"></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="action-dock" aria-label="Operation controls">
+    <p id="status-text">System online. Place the grow pod Mara sent you.</p>
+    <button class="end-day-button" id="end-day-button">
+      <span><small id="time-control-label">REALTIME RUNNING</small><b id="time-control-text">一時停止</b></span>
+      <b id="time-control-icon">Ⅱ</b>
+    </button>
+  </footer>
+
+  <div class="start-screen hidden" id="start-screen" aria-hidden="true">
+    <section class="start-panel" role="dialog" aria-modal="true" aria-labelledby="start-title">
+      <div class="start-tools" aria-label="Start screen tools">
+        <span class="start-mode-chip" id="start-mode-label">DAY45 MODE</span>
+        <button class="start-tool-button" id="start-mode-toggle" type="button" title="Mode" aria-label="Mode">MODE</button>
+        <button class="start-tool-button fullscreen-button" id="fullscreen-button" type="button" title="Fullscreen mode" aria-label="Fullscreen mode" aria-pressed="false">FULL</button>
+        <button class="start-tool-button" id="record-export-button" type="button" title="Records" aria-label="Records">LOG</button>
+        <button class="start-tool-button" id="start-settings-button" type="button" title="Settings" aria-label="設定">SET</button>
+      </div>
+
+      <div class="start-hero" aria-label="UNDER GREEN title screen">
+        <img class="start-layer start-bg" src="assets/Logo/title_backGround.png" alt="" draggable="false">
+        <img class="start-layer start-shadow" src="assets/Logo/title_lettuce_shadow.png" alt="" draggable="false">
+        <img class="start-layer start-lettuce" src="assets/Logo/title_lettuce.png" alt="" draggable="false">
+        <img class="start-layer start-grow" src="assets/Logo/title_lettuce_grow.png" alt="" draggable="false">
+        <img class="start-layer start-logo-img" src="assets/Logo/title_logo.png" alt="UNDER GREEN" draggable="false">
+        <img class="start-layer start-tap-aura" src="assets/Logo/title_text_tapToStartd.png" alt="" draggable="false" aria-hidden="true">
+        <img class="start-layer start-tap-img" src="assets/Logo/title_text_tapToStartd.png" alt="" draggable="false">
+        <img class="start-layer start-subtitle-img" src="assets/Logo/title_text_WhoOwnsSeed.png" alt="Who Owns the Seed?" draggable="false">
+        <button class="start-title-hotspot" id="start-title" type="button" aria-label="UNDER GREEN"><span class="sr-only">UNDER GREEN</span></button>
+        <button class="start-primary-hit" id="start-continue" type="button">TAP TO START</button>
+        <div class="start-status" id="start-status">SAVE SIGNAL SCAN...</div>
+      </div>
+
+      <div class="start-actions start-secondary-actions">
+        <button class="secondary-button" id="start-new">NEW OPERATION</button>
+      </div>
+      <div class="start-records">
+        <div class="start-records-head">
+          <p class="eyebrow" id="start-records-title">DAY45 RECORDS</p>
+          <span id="day30-record-count">0 RUNS</span>
+        </div>
+        <div class="day30-record-list" id="day30-record-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="settings-overlay hidden" id="settings-overlay" aria-hidden="true">
+    <div class="settings-window" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="settings-header">
+        <div>
+          <p class="eyebrow">SYSTEM CONFIGURATION</p>
+          <h2 id="settings-title">設定</h2>
+        </div>
+        <button class="settings-close" type="button" data-settings-close title="閉じる" aria-label="設定を閉じる">×</button>
+      </header>
+      <nav class="settings-tabs" role="tablist" aria-label="設定ページ">
+        <button class="active" type="button" role="tab" aria-selected="true" data-settings-tab="system">SYSTEM</button>
+        <button type="button" role="tab" aria-selected="false" data-settings-tab="credits">CREDITS</button>
+      </nav>
+      <div class="settings-body">
+        <section class="settings-panel active" data-settings-panel="system" role="tabpanel">
+          <div class="settings-option-row">
+            <div><span>PERFORMANCE</span><strong>低スペックモード</strong></div>
+            <label class="settings-switch">
+              <input id="settings-low-spec" type="checkbox">
+              <span aria-hidden="true"><i></i></span>
+              <b id="settings-low-spec-state">OFF</b>
+            </label>
+          </div>
+          <div class="settings-option-row settings-volume-row">
+            <label for="settings-volume"><span>AUDIO</span><strong>全体音量</strong></label>
+            <input id="settings-volume" type="range" min="0" max="100" step="5" value="100">
+            <output id="settings-volume-value" for="settings-volume">100%</output>
+          </div>
+        </section>
+        <section class="settings-panel" data-settings-panel="credits" role="tabpanel">
+          <div class="settings-credits-list" id="settings-credits-list"></div>
+        </section>
+      </div>
+    </div>
+  </section>
+
+  <div class="confirm-widget hidden" id="confirm-widget" aria-hidden="true">
+    <section class="confirm-panel" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <p class="eyebrow" id="confirm-kicker">CONFIRM</p>
+      <h2 id="confirm-title">確認</h2>
+      <p id="confirm-copy"></p>
+      <div class="modal-actions">
+        <button class="secondary-button" id="confirm-cancel">戻る</button>
+        <button class="danger-button hidden" id="confirm-danger">記録消去</button>
+        <button class="secondary-button hidden" id="confirm-extra">GOOGLE FORM</button>
+        <button class="primary-button" id="confirm-ok">実行</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="story-comms-overlay hidden" id="story-comms-overlay" aria-hidden="true" aria-live="polite">
+    <div class="story-comms-bg" id="story-comms-bg"></div>
+    <div class="story-comms-noise" aria-hidden="true"></div>
+    <div class="story-comms-grid" aria-hidden="true"></div>
+    <div class="story-comms-sweep" aria-hidden="true"></div>
+    <div class="story-comms-window" role="dialog" aria-modal="true" aria-labelledby="story-comms-title">
+      <button class="story-comms-close" id="story-comms-close" type="button" aria-label="ストーリー通信を閉じる">×</button>
+      <div class="story-comms-alert" aria-hidden="true">!</div>
+      <div class="story-side-stack story-side-left" id="story-left-stack" aria-label="左側の話者"></div>
+      <div class="story-transcript">
+        <p class="story-kicker" id="story-kicker">STORY COMMS</p>
+        <h2 id="story-comms-title">---</h2>
+        <div class="story-history" id="story-history" aria-label="会話履歴"></div>
+        <div class="story-current-speaker" id="story-current-speaker">
+          <small id="story-current-role">---</small>
+          <strong id="story-current-name">---</strong>
+        </div>
+        <p class="story-text" id="story-text"></p>
+        <div class="story-progress" id="story-progress"></div>
+        <div class="story-actions" id="story-actions"></div>
+      </div>
+      <div class="story-side-stack story-side-right" id="story-right-stack" aria-label="右側の話者"></div>
+      <div class="story-comms-status" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+    </div>
+    <div class="story-image-popup hidden" id="story-image-popup" aria-hidden="true">
+      <section class="story-image-window" role="dialog" aria-modal="true" aria-label="story image packet">
+        <div class="story-image-head"><span>IMAGE PACKET</span><strong>VISUAL DATA</strong></div>
+        <div class="story-image-frame"><img id="story-image-popup-img" src="" alt="" loading="lazy" decoding="async"></div>
+        <p id="story-image-popup-caption"></p>
+        <button class="story-link-button story-image-close" type="button" data-story-image-close><span>NEXT</span><i></i></button>
+      </section>
+    </div>
+  </section>
+
+  <section class="timed-mode-countdown hidden" id="timed-mode-countdown" aria-hidden="true" aria-live="assertive">
+    <div class="timed-mode-countdown-lines" aria-hidden="true"></div>
+    <div class="timed-mode-countdown-band">
+      <p id="timed-mode-countdown-kicker">OPERATION DEADLINE</p>
+      <div class="timed-mode-countdown-value" aria-hidden="true">
+        <strong id="timed-mode-countdown-days">10</strong>
+        <span>DAYS<br>REMAIN</span>
+      </div>
+      <div class="timed-mode-countdown-message">
+        <h2 id="timed-mode-countdown-title">最終評価まであと10日</h2>
+        <p id="timed-mode-countdown-copy">生産計画と販売先を見直してください。</p>
+      </div>
+    </div>
+  </section>
+  <aside class="comms-banner hidden" id="comms-banner" aria-live="polite">
+    <div class="comms-speaker">
+      <img id="comms-icon" src="assets/runtime/characters/seed-broker.webp" alt="" loading="lazy" decoding="async">
+      <div>
+        <small id="comms-kicker">ENCRYPTED COMMS</small>
+        <strong id="comms-speaker-name">---</strong>
+        <span id="comms-speaker-role">---</span>
+      </div>
+    </div>
+    <div class="comms-body">
+      <div class="comms-title-row">
+        <h3 id="comms-title">---</h3>
+        <button class="comms-close" id="comms-close" aria-label="通信を閉じる">×</button>
+      </div>
+      <p id="comms-text"></p>
+      <div class="comms-progress" id="comms-progress"></div>
+      <div class="comms-actions" id="comms-actions"></div>
+    </div>
+  </aside>
+
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <p class="eyebrow" id="modal-kicker">OPERATION REPORT</p>
+      <h2 id="modal-title">作戦結果</h2>
+      <div id="modal-content"></div>
+      <div class="modal-actions">
+        <button class="secondary-button" id="modal-close">続ける</button>
+        <button class="primary-button" id="modal-reset">ニューゲーム</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="news-history-panel hidden" id="news-history-panel" aria-hidden="true">
+    <section class="news-history-window" role="dialog" aria-modal="true" aria-labelledby="news-history-title">
+      <div class="news-history-head">
+        <div>
+          <p class="eyebrow">LOWNET ARCHIVE</p>
+          <h2 id="news-history-title">ニュース履歴</h2>
+        </div>
+        <button class="news-history-close" id="news-history-close" type="button" aria-label="ニュース履歴を閉じる">×</button>
+      </div>
+      <div class="news-history-list" id="news-history-list"></div>
+    </section>
+  </div>
+
+
+  <section class="robot-gacha-overlay hidden" id="robot-gacha-overlay" aria-hidden="true" aria-live="polite">
+    <div class="robot-gacha-drop" id="robot-gacha-drop">
+      <header class="robot-gacha-heading">
+        <strong>ENCRYPTED CARGO INBOUND</strong>
+        <span>UNIT BROKER // SUPPORT ROBOT CANDIDATES</span>
+      </header>
+      <i class="robot-gacha-cable" aria-hidden="true"></i>
+      <div class="robot-gacha-crate" id="robot-gacha-crate" aria-hidden="true">
+        <span>UG-CARGO // NO MANIFEST</span>
+        <b id="robot-gacha-seal">SEAL</b>
+        <i></i>
+      </div>
+      <pre class="robot-gacha-decode-log" id="robot-gacha-decode-log" aria-hidden="true"></pre>
+      <button class="robot-gacha-skip" type="button" data-robot-gacha-skip>SKIP</button>
+    </div>
+
+    <div class="robot-gacha-reveal hidden" id="robot-gacha-reveal">
+      <header class="robot-gacha-heading">
+        <strong>UNIT CANDIDATES</strong>
+        <span>契約する1体を選択してください</span>
+      </header>
+      <div class="robot-gacha-cards" id="robot-gacha-cards" role="list"></div>
+      <p class="robot-gacha-selection-hint" id="robot-gacha-selection-hint">候補情報を復号しています</p>
+    </div>
+
+    <div class="robot-gacha-confirm hidden" id="robot-gacha-confirm">
+      <div class="robot-gacha-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="robot-gacha-confirm-title">
+        <p class="eyebrow">CONTRACT</p>
+        <h2 id="robot-gacha-confirm-title">この個体と契約しますか？</h2>
+        <p id="robot-gacha-confirm-text"></p>
+        <div>
+          <button class="secondary-button" type="button" data-robot-gacha-cancel>戻る</button>
+          <button class="primary-button" type="button" data-robot-gacha-confirm>契約する</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="robot-gacha-boot hidden" id="robot-gacha-boot">
+      <div class="robot-gacha-boot-panel">
+        <p class="eyebrow">UNIT BOOT SEQUENCE</p>
+        <div class="robot-gacha-boot-portrait"><img id="robot-gacha-boot-image" src="assets/runtime/characters/supportRobot-iso-leftdown.webp" alt="選択したサポートロボット" loading="lazy" decoding="async"></div>
+        <h2 id="robot-gacha-boot-name">SUPPORT ROBOT</h2>
+        <strong id="robot-gacha-boot-rarity">STANDARD</strong>
+        <p id="robot-gacha-boot-line"></p>
+        <button class="primary-button" id="robot-gacha-done" type="button">配置へ進む</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="boot-loading" id="boot-loading" role="status" aria-live="polite">
+    <div class="boot-loading-panel">
+      <p class="eyebrow">UNDERGREEN BOOT SEQUENCE</p>
+      <h2>素材を読み込んでいます</h2>
+      <p id="boot-loading-text">CSVデータを確認中...</p>
+      <div class="boot-loading-bar"><i id="boot-loading-fill"></i></div>
+      <small id="boot-loading-count">0%</small>
+    </div>
+  </div>
+
+  <div id="toast-container" aria-live="polite"></div>
+  <script src="labor-blueprint.js?v=20260719c1"></script>
+<script src="game.js?v=20260720p2"></script>
+  <script src="radar.js?v=20260720p1"></script>
+  <script src="comms-fx.js?v=20260720p1"></script>
+</body>
+</html>
