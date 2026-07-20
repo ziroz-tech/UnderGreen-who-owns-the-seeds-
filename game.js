@@ -5385,9 +5385,8 @@ function requestScheduleReroll() {
 }
 function renderSchedule() {
   const calendar = document.getElementById("schedule-calendar");
-  const list = document.getElementById("schedule-briefing-list");
   const summary = document.getElementById("schedule-summary");
-  if (!calendar || !list) return;
+  if (!calendar) return;
   state.monthlySchedule = ensureMonthlyScheduleBasics(Array.isArray(state.monthlySchedule) && state.monthlySchedule.length ? state.monthlySchedule : generateMonthlySchedule());
   const entries = state.monthlySchedule;
   const rareCount = entries.filter((entry) => entry.strength === "rare").length;
@@ -5401,12 +5400,6 @@ function renderSchedule() {
     const dayClass = 'schedule-day ' + (isToday ? 'today ' : '') + (isPast ? 'past ' : '') + (dayEntries.length ? 'has-rumor' : '');
     const chips = dayEntries.map((entry) => '<button class="schedule-chip ' + (entry.strength || 'mid') + '" data-schedule-entry="' + escapeHtml(entry.id) + '" type="button">' + escapeHtml(scheduleStrengthLabel(entry.strength)) + ' // ' + escapeHtml(scheduleCropLabel(entry)) + '</button>').join('');
     return '<article class="' + dayClass.trim() + '"><header><span>DAY</span><strong>' + String(day).padStart(2, "0") + '</strong></header><div class="schedule-day-events">' + chips + '</div></article>';
-  }).join('');
-  list.innerHTML = entries.map((entry) => {
-    const axisLabel = marketAxisLabel(entry.marketId, scheduleAxisList(entry));
-    const endDay = Number(entry.startDay) + Math.max(1, Number(entry.duration) || 1) - 1;
-    const dayRange = 'DAY ' + String(entry.startDay).padStart(2, "0") + (endDay !== Number(entry.startDay) ? '-' + String(endDay).padStart(2, "0") : '');
-    return '<article class="schedule-note ' + (entry.strength || 'mid') + '" id="schedule-' + escapeHtml(entry.id) + '"><div class="schedule-note-head"><span>' + dayRange + '</span><strong>' + escapeHtml(scheduleStrengthLabel(entry.strength)) + '</strong></div><h3>' + escapeHtml(entry.title) + '</h3><p>' + escapeHtml(entry.rumor) + '</p><small>' + escapeHtml(scheduleCropLabel(entry)) + ' // ' + escapeHtml(scheduleMarketLabel(entry)) + ' // ' + escapeHtml(axisLabel) + '</small><blockquote>' + escapeHtml(entry.comment) + '</blockquote></article>';
   }).join('');
 }
 function baseMarketUnitPrice(batch, marketId = selectedMarket, options = {}) {
@@ -8917,7 +8910,6 @@ function buyEquipment(itemId) {
   triggerComms(`buy_${GROW_UNITS[itemId] ? `unit_${itemId}` : itemId}`, commsContext);
   triggerComms("buy_item", commsContext);
   updateProgressionUnlocks();
-  if (placementNote) switchTab("farm");
   checkVictory();
   saveGame();
   render();
@@ -11668,9 +11660,6 @@ function day30ReportMarkup(summary) {
   const status = summary.completed ? "完走" : "途中終了";
   const modeName = config.label;
   const rankingScope = resultRankingStats(summary).scopeLabel;
-  const endingAction = summary.completed && isTimedPlayMode(summary.mode)
-    ? `<button class="primary-button" data-day30-result="ending">${escapeHtml(endingRollText("result_button_label", "エンディングを見る"))}</button>`
-    : "";
   return `<p class="modal-copy">${escapeHtml(modeName)}の記録を保存しました。名前はこの端末の記録一覧に表示されます。</p>
   <label class="day30-name-field">
     <span>PLAYER NAME</span>
@@ -11691,7 +11680,6 @@ function day30ReportMarkup(summary) {
   <div class="day30-result-actions">
     <button class="secondary-button" data-day30-result="start">スタートへ戻る</button>
     <button class="secondary-button" data-day30-result="view">閲覧モード</button>
-    ${endingAction}
   </div>`;
 }
 function showDay30Report(summary) {
@@ -12843,6 +12831,18 @@ function renderMarkets(direction = "") {
     <button class="market-cycle-button cycle-next" data-market-cycle="1" aria-label="Next market">&rsaquo;</button>
   `;
 
+  const shortcuts = document.getElementById("market-shortcuts");
+  if (shortcuts) {
+    shortcuts.innerHTML = Object.entries(MARKETS).map(([marketId, market]) => {
+      const available = isMarketAvailable(marketId);
+      const active = selectedMarket === marketId;
+      return `<button class="market-shortcut ${active ? "active" : ""} ${available ? "" : "locked"}" data-market="${marketId}" type="button" ${available ? "" : "disabled"} aria-current="${active ? "true" : "false"}">
+        <img src="${market.portrait}" alt="" loading="lazy" decoding="async">
+        <span><strong>${market.name}</strong>${available ? "" : "<small>ROUTE LOCKED</small>"}</span>
+      </button>`;
+    }).join("");
+  }
+
   const signalProfile = MARKET_SIGNALS[selectedMarket];
   const signals = state.marketSignals?.[selectedMarket] || {};
   document.getElementById("market-signal-row").innerHTML = signalProfile ? [signalProfile.axisA, signalProfile.axisB].map((axis, index) => {
@@ -13067,7 +13067,6 @@ function renderEquipmentShopCard(itemId, item) {
       <div class="shop-glyph"><img src="${item.sprite || item.icon}" alt=""></div>
       <h3>${item.name}${count}</h3>
       <p>${description}</p>
-      ${tagMarkup(tags, EQUIPMENT_TAGS)}
       <footer>
         <span class="shop-price">₡${price}</span>
         <button class="buy-button" data-buy-item="${itemId}" data-guide-target="buy-item-${itemId}" ${disabled ? "disabled" : ""}>${!available ? "LOCKED" : owned ? "OWNED" : "BUY"}</button>
@@ -13180,14 +13179,14 @@ function renderRadio() {
   noiseButton.classList.toggle("active", state.audio.noiseCanceling);
   noiseState.textContent = state.audio.noiseCanceling ? "ON" : "OFF";
 
-  ambientList.innerHTML = Object.entries(AMBIENT_LAYERS).map(([id, layer]) => {
-    const active = activeLayers.has(id);
-    return `<article class="ambient-layer ${active ? "active" : ""} ${state.audio.noiseCanceling ? "muted" : ""}">
-      <span>${active ? "LIVE" : "STANDBY"} // ${escapeHtml(layer.condition)}</span>
+  const visibleAmbientLayers = Object.entries(AMBIENT_LAYERS).filter(([id]) => activeLayers.has(id));
+  ambientList.innerHTML = visibleAmbientLayers.map(([id, layer]) => {
+    return `<article class="ambient-layer active">
+      <span>LIVE // ${escapeHtml(layer.condition)}</span>
       <strong>${escapeHtml(layer.label || id)}</strong>
       <p>${escapeHtml(layer.description || "")}</p>
     </article>`;
-  }).join("");
+  }).join("") || `<p class="ambient-layer-empty">現在再生中の環境音はありません</p>`;
 
   radioList.innerHTML = Object.entries(RADIO_PROGRAMS).filter(([, program]) => program.unlocked).map(([id, program]) => `
     <button class="radio-program ${state.audio.radioProgram === id ? "active" : ""}" data-radio-program="${id}" type="button">
@@ -13408,7 +13407,6 @@ function bindEvents() {
       event.preventDefault();
       if (day30ResultAction.dataset.day30Result === "start") day30ResultToStart();
       if (day30ResultAction.dataset.day30Result === "view") enterDay30ViewMode();
-      if (day30ResultAction.dataset.day30Result === "ending") endingRollPresentation.play();
       if (day30ResultAction.dataset.day30Result === "share-x") openXShareDraft();
       return;
     }

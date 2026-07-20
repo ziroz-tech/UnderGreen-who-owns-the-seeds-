@@ -9,7 +9,7 @@
   position: fixed;
   z-index: 33;
   left: 0;
-  top: 50%;
+  top: var(--radar-y, 50%);
   display: none;
   width: 316px;
   max-width: calc(100vw - 44px);
@@ -684,4 +684,16 @@ body.radar-shake {
   .radar-tab-pulse-ring[data-ring="3"] {
     display: none;
   }
+}
+/* Drag the closed/open drawer tab to place the radar vertically. */
+.radar-window.radar-dragging { transition: none; }
+
+.radar-window .radar-tab {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.radar-window.radar-dragging .radar-tab {
+  cursor: grabbing;
+  background: rgba(20, 64, 47, .98);
 }

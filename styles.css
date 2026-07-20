@@ -12671,3 +12671,261 @@ html.low-spec-mode .ending-roll-skip {
     transition-duration: 0.01ms !important;
   }
 }
+/* One-click market route banners */
+.market-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+
+.market-shortcut {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 62px;
+  padding: 5px;
+  border: 1px solid rgba(113, 255, 184, .22);
+  color: var(--muted);
+  background: rgba(4, 14, 10, .58);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .16s ease, background .16s ease, filter .16s ease, opacity .16s ease;
+}
+
+.market-shortcut img {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  border: 1px solid rgba(113, 255, 184, .24);
+  filter: saturate(.72) brightness(.74);
+}
+
+.market-shortcut span,
+.market-shortcut strong,
+.market-shortcut small {
+  display: block;
+  min-width: 0;
+}
+
+.market-shortcut small {
+  overflow: hidden;
+  color: var(--green);
+  font: 700 7px Consolas, monospace;
+  letter-spacing: .06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.market-shortcut strong {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.market-shortcut:hover,
+.market-shortcut:focus-visible,
+.market-shortcut.active {
+  border-color: var(--green);
+  color: var(--text);
+  background: rgba(39, 95, 70, .3);
+}
+
+.market-shortcut.active img {
+  border-color: var(--green);
+  filter: saturate(1) brightness(1);
+}
+
+.market-shortcut.locked,
+.market-shortcut.locked:hover {
+  opacity: .38;
+  border-color: rgba(113, 255, 184, .16);
+  background: rgba(4, 14, 10, .46);
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
+.market-shortcut.locked small { color: var(--red); }
+
+@media (max-width: 760px) {
+  .market-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Readability pass for information-dense terminal screens */
+:is(#schedule-screen, #shop-screen, #market-screen, #radio-screen, #info-screen) .section-label > span {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+:is(#schedule-screen, #shop-screen, #market-screen, #radio-screen, #info-screen) .section-label > small {
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+#schedule-screen .schedule-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#schedule-screen .schedule-console {
+  padding: clamp(18px, 2vw, 24px);
+}
+
+#schedule-screen .schedule-calendar {
+  grid-template-columns: repeat(7, minmax(108px, 1fr));
+  gap: 10px;
+}
+
+#schedule-screen .schedule-day {
+  min-height: 124px;
+  padding: 11px;
+}
+
+#schedule-screen .schedule-day header span {
+  font-size: 9px;
+}
+
+#schedule-screen .schedule-chip {
+  min-height: 30px;
+  padding: 6px 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  letter-spacing: .04em;
+}
+
+#shop-screen .shop-category-carousel {
+  min-height: 112px;
+  margin-bottom: 14px;
+}
+
+#shop-screen .shop-category-stage {
+  min-height: 104px;
+  gap: 10px;
+}
+
+#shop-screen .shop-category-card {
+  min-height: 100px;
+  padding: 14px 14px 13px;
+}
+
+#shop-screen .shop-category-kicker {
+  margin-bottom: 7px;
+  font-size: 9px;
+}
+
+#shop-screen .shop-category-card strong {
+  padding-right: 34px;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+#shop-screen .shop-category-card small {
+  margin-top: 6px;
+  padding-right: 34px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+#shop-screen .shop-category-card b {
+  right: 12px;
+  bottom: 10px;
+  font-size: 11px;
+}
+
+#shop-screen .shop-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+#shop-screen .shop-card {
+  min-height: 166px;
+  padding: 14px;
+}
+
+#shop-screen .shop-glyph {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 10px;
+}
+
+#shop-screen .shop-glyph img {
+  padding: 3px;
+}
+
+#shop-screen .shop-card h3 {
+  margin-bottom: 7px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+#shop-screen .shop-card p {
+  max-height: 47px;
+  margin-bottom: 10px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+#market-screen .price-board > .section-label > span {
+  color: var(--yellow);
+  font-size: 14px;
+}
+
+.market-shortcut {
+  min-height: 66px;
+  padding: 6px;
+}
+
+.market-shortcut > span {
+  align-self: center;
+}
+
+.market-shortcut strong {
+  margin-top: 0;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.market-shortcut small {
+  margin-top: 5px;
+  font-size: 8px;
+}
+
+.ambient-layer-empty {
+  margin: 0;
+  padding: 16px 13px;
+  border: 1px dashed rgba(113, 255, 184, .18);
+  color: var(--muted);
+  background: rgba(2, 9, 7, .42);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  #schedule-screen .schedule-calendar {
+    grid-template-columns: repeat(5, minmax(108px, 1fr));
+  }
+
+  #shop-screen .shop-category-card strong {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  #schedule-screen .schedule-calendar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #shop-screen .shop-category-stage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #shop-screen .shop-category-card {
+    min-height: 96px;
+  }
+
+  #shop-screen .shop-grid {
+    grid-template-columns: 1fr;
+  }
+}

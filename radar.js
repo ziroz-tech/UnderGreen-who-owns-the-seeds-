@@ -27,6 +27,9 @@
   const BLACKOUT_CHATTER_MIN_MS = 1750;
   const BLACKOUT_CHATTER_MAX_MS = 2850;
   const BLACKOUT_CHATTER_LIFETIME_MS = 4200;
+  const RADAR_POSITION_STORAGE_KEY = "undergreen.radar.position";
+  const RADAR_VERTICAL_MARGIN = 14;
+  const RADAR_DRAG_THRESHOLD = 5;
   const BLACKOUT_CHATTER_SLOTS = [
     { x: 41, y: 20, tail: "left" },
     { x: 70, y: 30, tail: "right" },
@@ -48,18 +51,18 @@
   const win = document.createElement("aside");
   win.className = "radar-window";
   win.id = "radar-window";
-  win.setAttribute("aria-label", "周辺監視レーダー");
+  win.setAttribute("aria-label", "監視レーダー");
   win.innerHTML = [
     '<div class="radar-shell">',
       '<div class="radar-head">',
-        '<div class="radar-title"><small>PERIMETER SCAN</small><strong>周辺監視レーダー</strong></div>',
+        '<div class="radar-title"><small>PERIMETER SCAN</small><strong>監視レーダー</strong></div>',
         '<span class="radar-clock" id="radar-clock">CLOCK HOLD</span>',
         '<span class="radar-power" id="radar-power">MAIN PWR</span>',
         '<i class="radar-live" aria-hidden="true"></i>',
         '<button class="radar-mute" id="radar-mute" type="button" title="警報音 ON/OFF" aria-label="警報音 ON/OFF" aria-pressed="false">♪</button>',
       '</div>',
       '<div class="radar-scope-wrap">',
-        '<canvas id="radar-canvas" aria-label="官憲巡回レーダー"></canvas>',
+        '<canvas id="radar-canvas" aria-label="監視レーダー表示"></canvas>',
         '<div class="radar-alert-banner" id="radar-banner">APPROACH VECTOR</div>',
         '<div class="radar-msg" id="radar-msg" aria-live="polite"></div>',
       '</div>',
@@ -148,10 +151,25 @@
   let blackoutRobotIndex = 0;
   let blackoutLastLineId = "";
   const blackoutBubbleTimers = new Set();
+  let radarPositionRatio = readRadarPosition();
+  let radarTabDrag = null;
+  let suppressRadarTabClick = false;
 
-  tab.addEventListener("click", () => {
+  syncRadarPosition();
+
+  tab.addEventListener("click", (event) => {
+    if (suppressRadarTabClick) {
+      event.preventDefault();
+      suppressRadarTabClick = false;
+      return;
+    }
     setPanelOpen(!win.classList.contains("open"));
   });
+  tab.addEventListener("pointerdown", beginRadarTabDrag);
+  tab.addEventListener("pointermove", moveRadarTabDrag);
+  tab.addEventListener("pointerup", endRadarTabDrag);
+  tab.addEventListener("pointercancel", endRadarTabDrag);
+  window.addEventListener("resize", syncRadarPosition, { passive: true });
 
   muteBtn.addEventListener("click", () => {
     muted = !muted;
@@ -212,7 +230,93 @@
   function setPanelOpen(open) {
     win.classList.toggle("open", open);
     tab.setAttribute("aria-expanded", String(open));
+    syncRadarPosition();
     restartFrameLoop();
+  }
+
+  function readRadarPosition() {
+    try {
+      const saved = window.localStorage.getItem(RADAR_POSITION_STORAGE_KEY);
+      if (saved === "top") return 0;
+      if (saved === "bottom") return 1;
+      if (saved === "center" || saved === null) return 0.5;
+      const numeric = Number(saved);
+      return Number.isFinite(numeric) ? clamp(numeric, 0, 1) : 0.5;
+    } catch (error) {
+      return 0.5;
+    }
+  }
+
+  function radarVerticalBounds() {
+    const measuredHeight = win.querySelector(".radar-shell")?.getBoundingClientRect().height || 460;
+    const availableHeight = Math.max(0, window.innerHeight - RADAR_VERTICAL_MARGIN * 2);
+    const halfHeight = Math.min(measuredHeight, availableHeight) / 2;
+    const min = RADAR_VERTICAL_MARGIN + halfHeight;
+    const max = Math.max(min, window.innerHeight - RADAR_VERTICAL_MARGIN - halfHeight);
+    return { min, max };
+  }
+
+  function syncRadarPosition() {
+    const { min, max } = radarVerticalBounds();
+    const centerY = min + (max - min) * radarPositionRatio;
+    win.style.setProperty("--radar-y", `${Math.round(centerY)}px`);
+  }
+
+  function setRadarPositionFromClientY(clientY) {
+    const { min, max } = radarVerticalBounds();
+    radarPositionRatio = max <= min ? 0.5 : clamp((clientY - min) / (max - min), 0, 1);
+    syncRadarPosition();
+  }
+
+  function persistRadarPosition() {
+    try {
+      window.localStorage.setItem(RADAR_POSITION_STORAGE_KEY, radarPositionRatio.toFixed(4));
+    } catch (error) {
+      // Position persistence is optional when storage is unavailable.
+    }
+  }
+
+  function beginRadarTabDrag(event) {
+    if (typeof event.button === "number" && event.button !== 0) return;
+    radarTabDrag = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      moved: false
+    };
+    try {
+      tab.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // Pointer capture is optional; move events still work while the tab remains targeted.
+    }
+  }
+
+  function moveRadarTabDrag(event) {
+    if (!radarTabDrag || event.pointerId !== radarTabDrag.pointerId) return;
+    if (!radarTabDrag.moved && Math.abs(event.clientY - radarTabDrag.startY) < RADAR_DRAG_THRESHOLD) return;
+    radarTabDrag.moved = true;
+    win.classList.add("radar-dragging");
+    setRadarPositionFromClientY(event.clientY);
+    event.preventDefault();
+  }
+
+  function endRadarTabDrag(event) {
+    if (!radarTabDrag || event.pointerId !== radarTabDrag.pointerId) return;
+    const moved = radarTabDrag.moved;
+    if (moved) {
+      setRadarPositionFromClientY(event.clientY);
+      persistRadarPosition();
+      suppressRadarTabClick = true;
+      window.setTimeout(() => {
+        suppressRadarTabClick = false;
+      }, 0);
+    }
+    try {
+      if (tab.hasPointerCapture(event.pointerId)) tab.releasePointerCapture(event.pointerId);
+    } catch (error) {
+      // The browser may release capture before pointercancel.
+    }
+    radarTabDrag = null;
+    win.classList.remove("radar-dragging");
   }
 
   function readBlackoutChatterData() {
@@ -615,7 +719,7 @@
     win.classList.toggle("danger", inPulse);
     win.classList.toggle("imminent", imminent);
     tab.setAttribute("aria-label", approaching ? "RADAR 管理局接近中" : "RADAR");
-    tab.title = approaching ? "管理局接近中 / 開いて確認" : "周辺監視レーダー";
+    tab.title = approaching ? "管理局接近中 / 開いて確認" : "監視レーダー";
     threatOverlay.style.opacity = String(intensity * 0.72);
 
     if (!snapshot.running) {
@@ -831,7 +935,7 @@
     } else {
       win.classList.remove("open", "approaching", "rapid", "caution", "danger", "imminent");
       tab.setAttribute("aria-label", "RADAR");
-      tab.title = "周辺監視レーダー";
+      tab.title = "監視レーダー";
       threatOverlay.style.opacity = "0";
     }
 

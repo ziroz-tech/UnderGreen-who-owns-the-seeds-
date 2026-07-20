@@ -6,8 +6,8 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260720e1">
-  <link rel="stylesheet" href="radar.css?v=20260720w1">
+    <link rel="stylesheet" href="styles.css?v=20260720u2">
+  <link rel="stylesheet" href="radar.css?v=20260720u2">
 </head>
 <body>
   <div class="scanlines" aria-hidden="true"></div>
@@ -138,8 +138,9 @@
           <div class="heading-stats" id="inventory-summary"></div>
         </div>
         <div class="market-selector" id="market-selector"></div>
+        <div class="market-shortcuts" id="market-shortcuts" aria-label="Market quick routes"></div>
         <div class="price-board">
-          <div class="section-label"><span>LIVE QUOTES</span><small>TODAY UNIT / B QUALITY</small></div>
+          <div class="section-label"><span>市場活況</span><small>TODAY UNIT / B QUALITY</small></div>
           <div class="market-signal-row" id="market-signal-row"></div>
           <div class="price-grid" id="price-grid"></div>
         </div>
@@ -172,10 +173,6 @@
             <div class="section-label"><span>MONTHLY GRID</span><small>聞き取った噂の一覧</small></div>
             <div class="schedule-calendar" id="schedule-calendar"></div>
           </section>
-          <aside class="schedule-briefing">
-            <div class="section-label"><span>OPERATOR NOTES</span><small>噂に対する主人公のコメント</small></div>
-            <div id="schedule-briefing-list"></div>
-          </aside>
         </div>
       </section>
 
@@ -233,7 +230,7 @@
         </div>
         <div class="radio-layout">
           <section class="radio-console">
-            <div class="section-label"><span>NOISE CONTROL</span><small>環境音レイヤー</small></div>
+            <div class="section-label"><span>NOISE CONTROL</span><small>環境音</small></div>
             <button class="noise-cancel-toggle" id="noise-cancel-toggle" type="button">
               <span>NOISE CANCELING</span>
               <strong id="noise-cancel-state">OFF</strong>
@@ -241,7 +238,7 @@
             <div class="ambient-layer-list" id="ambient-layer-list"></div>
           </section>
           <section class="radio-console">
-            <div class="section-label"><span>RADIO CHANNELS</span><small>CSVで番組追加</small></div>
+            <div class="section-label"><span>RADIO CHANNELS</span></div>
             <div class="radio-program-list" id="radio-program-list"></div>
           </section>
         </div>
@@ -597,8 +594,8 @@
 
   <div id="toast-container" aria-live="polite"></div>
   <script src="labor-blueprint.js?v=20260720w1"></script>
-<script src="game.js?v=20260720e2"></script>
-  <script src="radar.js?v=20260720w1"></script>
+<script src="game.js?v=20260720u2"></script>
+  <script src="radar.js?v=20260720u2"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>
 </html>
