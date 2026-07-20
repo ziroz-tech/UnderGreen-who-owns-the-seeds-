@@ -1,4 +1,11 @@
 section,sectionLabel,name,role,note,url,order
-production,PRODUCTION,UNDERGREEN PROJECT,企画・開発,,,10
-illustration,ILLUSTRATION,未記入,イラストレーター,担当者名をこのCSVで編集できます,,20
-special_thanks,SPECIAL THANKS,未記入,スペシャルサンクス,協力者名をこのCSVで編集できます,,30
+production,企画・制作,違法水耕栽培レタス栽培促進委員会,,（ZZgames）,,10
+character_illustration,キャラクターイラスト,malco,,,,20
+image_assets,その他画像素材,Codex,,,,30
+program,プログラム,Codex,,,,40
+program,プログラム,Claude,,,,41
+music,楽曲,主題歌「？？」,,作詞:？？|作曲:？？,,50
+music,楽曲,ED曲「サポートロボットの歌」,,作詞:ZZgames|作曲:Suno,,51
+materials,素材利用,・効果音ラボ,,,,60
+special_thanks,Special thanks,さくらい,,,,70
+special_thanks,Special thanks,（株）DynoGames,,,,71

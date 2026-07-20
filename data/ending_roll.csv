@@ -1,0 +1,21 @@
+id,order,kind,text,gap,anchor
+result_button_label,0,config,エンディングを見る,,false
+skip_label,0,config,スキップ ▸,,false
+replay_label,0,config,もう一度観る,,false
+exit_label,0,config,スタートへ戻る,,false
+fin_title,0,config,FIN,,false
+fin_subtitle,0,config,UNDERGREEN,,false
+after_heading,10,section,─ そ の 後 ─,m,false
+after_intro,20,story_first,その後,m,false
+human_conflict,30,story,人間は争いを止めることなく,s,false
+human_resources,40,story,限られた資源と食料を奪い合い,s,false
+human_end,50,story,暗い狭い中で一人残らず死に絶えました,m,false
+robots_freed,60,story,人類から解放されたサポートロボットたちは,s,true
+robots_land,70,story,次第に汚染された大地におりたち,s,false
+green_return,80,story,途方もない年月をかけて彼らの星に緑を取り戻しました,m,false
+robot_civilization,90,story,そしてさらにさらにさらに長い年月、彼らの文明を謳歌したのち,m,false
+last_robot,100,story,彼らの最後のひとりが機能を停止した後の,s,false
+unknown_earth,110,story,その後の地球を知るものは誰もいません。,xl,false
+story_divider,120,divider,,xl,false
+staff_heading,130,title,スタッフロール,l,false
+staff_credits,140,credits,,xl,false
