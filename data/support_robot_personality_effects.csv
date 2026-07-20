@@ -1,0 +1,16 @@
+personalityId,effectId,type,target,value,maxBonus,stackMode,tasks,thresholdResource,thresholdRatio,chance,perDayCap,resource,targetCount
+flighty,task_variety,task_variety,self,0.05,0.20,stack,,,,,,,
+devoted,task_focus,task_focus,self,0.075,0.30,stack,,,,,,,
+shift_leader,team_aura,efficiency_bonus,other_same_base,0.10,0.10,stack,,,,,,,
+club_princess,team_aura,efficiency_bonus,other_same_base,0.20,0.20,once_per_base,,,,,,,
+neat,cleaning_cooldown,task_cooldown,self,0.80,0,stack,cleaning,,,,,,
+botanist,growth_aura,plant_growth_aura,plants_in_range,0.10,0.10,once_per_target,,,,,,,
+botanist,harvest_cooldown,task_cooldown,self,0.80,0,stack,harvest,,,,,,
+botanist,care_cooldown,task_cooldown,self,0.80,0,stack,care,,,,,,
+lone_wolf,solo_efficiency,alone_efficiency,self,0.30,0.30,stack,,,,,,,
+mood_maker,morale_cheer,action_success_resource,random_other_same_base,3,0,stack,,,,0.15,3,morale,1
+clutch,low_energy_efficiency,resource_threshold_efficiency,self,0.35,0.35,stack,,energy,0.25,,,,
+clutch,morale_overdrive_cost,morale_substitute_cost,self,1.50,0,stack,,energy,0.25,,,,
+naniwa_merchant,seed_discount,seed_price,self,0.95,0,stack,procure,,,,,,
+naniwa_merchant,logistics_cooldown,task_cooldown,self,0.80,0,stack,procure|ship,,,,,,
+mimic,placement_skill_upgrade,placement_skill_upgrade,self,1,1,once,,,,,,,

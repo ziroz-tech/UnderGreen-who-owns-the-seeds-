@@ -1,0 +1,23 @@
+source,optimized,kind,width,height
+assets/Item/The Book.png,assets/runtime/Item/The Book.webp,story_page,500,500
+assets/Item/radar.png,assets/runtime/Item/radar.webp,story_page,900,900
+assets/characters/market-lower.png,assets/runtime/characters/market-lower.webp,comm_speaker|info_entry|story_speaker,720,720
+assets/characters/market-medical.png,assets/runtime/characters/market-medical.webp,info_entry|story_speaker,720,720
+assets/characters/market-rebel.png,assets/runtime/characters/market-rebel.webp,info_entry|story_speaker,720,540
+assets/characters/market-upper.png,assets/runtime/characters/market-upper.webp,info_entry|story_speaker,720,720
+assets/characters/property-broker-black.png,assets/runtime/characters/property-broker-black.webp,comm_speaker|info_entry|story_speaker|ui_portrait,720,720
+assets/characters/protagonist.png,assets/runtime/characters/protagonist.webp,comm_speaker|info_book|story_speaker|ui_portrait,720,720
+assets/characters/seed-broker.png,assets/runtime/characters/seed-broker.webp,comm_speaker|info_entry|story_speaker|ui_portrait,720,720
+assets/characters/supportRobot-iso-leftdown.png,assets/runtime/characters/supportRobot-iso-leftdown.webp,comm_speaker|info_entry|story_speaker|ui_portrait,619,720
+assets/characters/syeisyei.png,assets/runtime/characters/syeisyei.webp,story_speaker,720,720
+assets/icons/aconite.webp,assets/runtime/icons/aconite.webp,info_entry,512,512
+assets/icons/basil.webp,assets/runtime/icons/basil.webp,info_entry,256,256
+assets/icons/chamomile.webp,assets/runtime/icons/chamomile.webp,info_entry,512,512
+assets/icons/lettuce.webp,assets/runtime/icons/lettuce.webp,info_book|info_entry,256,256
+assets/icons/locked.webp,assets/runtime/icons/locked.webp,comm_speaker|info_entry,271,271
+assets/icons/melon.webp,assets/runtime/icons/melon.webp,info_entry,512,512
+assets/icons/nutrient.webp,assets/runtime/icons/nutrient.webp,info_entry,256,256
+assets/icons/rosemary.webp,assets/runtime/icons/rosemary.webp,info_entry,512,512
+assets/icons/spinach.webp,assets/runtime/icons/spinach.webp,info_entry,256,256
+assets/icons/strawberry.webp,assets/runtime/icons/strawberry.webp,info_entry,256,256
+assets/icons/tomato.webp,assets/runtime/icons/tomato.webp,info_entry,256,256

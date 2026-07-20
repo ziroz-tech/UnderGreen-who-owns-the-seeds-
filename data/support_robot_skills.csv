@@ -1,0 +1,7 @@
+id,name,harvest,plant,care,cleaning,procure,ship,description
+balanced,汎用支援,A,A,A,A,B,B,どの作業も無難にこなす標準調整。
+harvester,収穫特化,S,B,B,B,C,B,熟した作物を見つけて回収するのが得意。
+planter,植え付け特化,B,S,A,B,B,C,空きスロットを見つけて素早く植え付ける。
+cultivator,育成管理特化,B,A,S,B,C,C,成長途中の植物を見回り、適切な時期に手入れする。
+cleaner,清掃特化,B,C,C,S,C,C,汚れを見つけると黙っていられない清掃型。
+logistics,物流特化,B,C,C,C,A,S,端末操作と搬送ルート処理が得意。

@@ -1,0 +1,4 @@
+section,sectionLabel,name,role,note,url,order
+production,PRODUCTION,UNDERGREEN PROJECT,企画・開発,,,10
+illustration,ILLUSTRATION,未記入,イラストレーター,担当者名をこのCSVで編集できます,,20
+special_thanks,SPECIAL THANKS,未記入,スペシャルサンクス,協力者名をこのCSVで編集できます,,30
