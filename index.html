@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260720w1">
+    <link rel="stylesheet" href="styles.css?v=20260720e1">
   <link rel="stylesheet" href="radar.css?v=20260720w1">
 </head>
 <body>
@@ -358,6 +358,7 @@
 
       <div class="start-actions start-secondary-actions">
         <button class="secondary-button" id="start-new">NEW OPERATION</button>
+        <button class="secondary-button" id="start-ending" type="button">&#12456;&#12531;&#12487;&#12451;&#12531;&#12464;&#12434;&#35211;&#12427;</button>
       </div>
       <div class="start-records">
         <div class="start-records-head">
@@ -562,6 +563,28 @@
     </div>
   </section>
 
+  <section class="ending-roll-overlay hidden" id="ending-roll-overlay" aria-hidden="true" aria-label="エンディング">
+    <div class="ending-roll-art ending-roll-art-primary" id="ending-roll-art-primary" aria-hidden="true"></div>
+    <div class="ending-roll-art ending-roll-art-final" id="ending-roll-art-final" aria-hidden="true"></div>
+    <div class="ending-roll-art-veil" id="ending-roll-art-veil" aria-hidden="true"></div>
+    <div class="ending-roll-band" id="ending-roll-band" aria-hidden="true"></div>
+    <canvas class="ending-roll-motes" id="ending-roll-motes" aria-hidden="true"></canvas>
+    <div class="ending-roll-vignette" aria-hidden="true"></div>
+    <div class="ending-roll-viewport" aria-hidden="true">
+      <div class="ending-roll-track" id="ending-roll-track"></div>
+    </div>
+    <div class="ending-roll-fin" id="ending-roll-fin" aria-live="polite">
+      <strong class="ending-roll-fin-title" id="ending-roll-fin-title">FIN</strong>
+      <span class="ending-roll-fin-subtitle" id="ending-roll-fin-subtitle">UNDERGREEN</span>
+      <div class="ending-roll-fin-actions">
+        <button type="button" id="ending-roll-replay">もう一度観る</button>
+        <button type="button" id="ending-roll-exit">スタートへ戻る</button>
+      </div>
+    </div>
+    <button class="ending-roll-skip" id="ending-roll-skip" type="button">スキップ ▸</button>
+    <audio id="ending-roll-audio" preload="metadata" playsinline></audio>
+  </section>
+
   <div class="boot-loading" id="boot-loading" role="status" aria-live="polite">
     <div class="boot-loading-panel">
       <p class="eyebrow">UNDERGREEN BOOT SEQUENCE</p>
@@ -574,7 +597,7 @@
 
   <div id="toast-container" aria-live="polite"></div>
   <script src="labor-blueprint.js?v=20260720w1"></script>
-<script src="game.js?v=20260720w1"></script>
+<script src="game.js?v=20260720e2"></script>
   <script src="radar.js?v=20260720w1"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>

@@ -32,6 +32,8 @@ let SCHEDULE_RUMORS = [];
 let INFO_BOOKS = {};
 let INFO_ENTRIES = [];
 let CREDITS = [];
+let ENDING_ROLL_ITEMS = [];
+let ENDING_ROLL_TEXT = {};
 
 const QUALITY = {
   C: { multiplier: 0.7, color: "#ff765e" },
@@ -780,6 +782,7 @@ const REQUIRED_GAME_DATA_PATHS = [
   "data/info_books.csv",
   "data/info_entries.csv",
   "data/credits.csv",
+  "data/ending_roll.csv",
   "data/comm_events.csv",
   "data/story_events.csv",
   "data/story_event_speakers.csv",
@@ -990,6 +993,22 @@ async function loadExternalData() {
       url: row.url || "",
       order: toNumber(row.order, 0)
     })).filter((row) => row.name).sort((a, b) => a.order - b.order);
+  });
+  await loadRequiredCsv("data/ending_roll.csv", (rows) => {
+    ENDING_ROLL_TEXT = Object.fromEntries(rows
+      .filter((row) => row.kind === "config" && row.id)
+      .map((row) => [row.id, row.text || ""]));
+    ENDING_ROLL_ITEMS = rows
+      .filter((row) => row.kind !== "config" && row.id)
+      .map((row) => ({
+        id: row.id,
+        order: toNumber(row.order, 0),
+        kind: row.kind || "story",
+        text: row.text || "",
+        gap: row.gap || "",
+        anchor: toBool(row.anchor)
+      }))
+      .sort((a, b) => a.order - b.order);
   });
   await loadRequiredCsv("data/crops.csv", (rows) => {
     CROPS = rowsToObject(rows, (row) => ({
@@ -3005,7 +3024,7 @@ function settingsCreditsMarkup() {
         const name = safeUrl
           ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(entry.name)}</a>`
           : `<strong>${escapeHtml(entry.name)}</strong>`;
-        return `<article class="settings-credit-row"><span>${escapeHtml(entry.role || "")}</span>${name}${entry.note ? `<small>${escapeHtml(entry.note)}</small>` : ""}</article>`;
+        return `<article class="settings-credit-row"><span>${escapeHtml(entry.role || "")}</span>${name}${entry.note ? `<small>${toList(entry.note).map((line) => escapeHtml(line)).join("<br>")}</small>` : ""}</article>`;
       }).join("")}
     </section>
   `).join("");
@@ -11216,11 +11235,442 @@ const resultPresentation = (() => {
 
   return { play, stop };
 })();
+function endingRollText(id, fallback = "") {
+  return ENDING_ROLL_TEXT[id] || fallback;
+}
+
+function appendEndingRollText(element, value) {
+  String(value || "").split("|").forEach((line, index) => {
+    if (index > 0) element.append(document.createElement("br"));
+    element.append(document.createTextNode(line));
+  });
+}
+
+function appendEndingRollGap(parent, gap) {
+  if (!new Set(["s", "m", "l", "xl"]).has(gap)) return;
+  const spacer = document.createElement("div");
+  spacer.className = `ending-roll-gap-${gap}`;
+  spacer.setAttribute("aria-hidden", "true");
+  parent.append(spacer);
+}
+
+function appendEndingRollCredits(parent) {
+  const groups = new Map();
+  CREDITS.forEach((entry) => {
+    const key = entry.section || "credits";
+    if (!groups.has(key)) groups.set(key, { section: key, label: entry.sectionLabel || key, entries: [] });
+    groups.get(key).entries.push(entry);
+  });
+
+  groups.forEach((group) => {
+    const role = document.createElement("div");
+    role.className = "ending-roll-role";
+    appendEndingRollText(role, group.label);
+    parent.append(role);
+
+    group.entries.forEach((entry) => {
+      const name = document.createElement("div");
+      name.className = group.section === "music"
+        ? "ending-roll-song"
+        : group.section === "materials"
+          ? "ending-roll-credit-line"
+          : "ending-roll-name";
+      appendEndingRollText(name, entry.name);
+      parent.append(name);
+
+      if (entry.note) {
+        const note = document.createElement("div");
+        note.className = "ending-roll-credit-note";
+        appendEndingRollText(note, entry.note);
+        parent.append(note);
+      }
+    });
+
+    appendEndingRollGap(parent, "m");
+  });
+}
+
+function buildEndingRollTrack() {
+  const track = document.getElementById("ending-roll-track");
+  if (!track) return null;
+  track.replaceChildren();
+
+  ENDING_ROLL_ITEMS.forEach((item) => {
+    if (item.kind === "credits") {
+      appendEndingRollCredits(track);
+      appendEndingRollGap(track, item.gap);
+      return;
+    }
+
+    let element;
+    if (item.kind === "divider") {
+      element = document.createElement("hr");
+    } else {
+      element = document.createElement("div");
+      const classes = {
+        section: "ending-roll-section",
+        story: "ending-roll-story",
+        story_first: "ending-roll-story ending-roll-story-first",
+        title: "ending-roll-title",
+        subtitle: "ending-roll-subtitle"
+      };
+      element.className = classes[item.kind] || "ending-roll-story";
+      appendEndingRollText(element, item.text);
+    }
+    if (item.anchor) element.id = "ending-roll-fade-anchor";
+    track.append(element);
+    appendEndingRollGap(track, item.gap);
+  });
+
+  return track;
+}
+
+const endingRollPresentation = (() => {
+  const DURATION = 129.98;
+  const ROLL_START = 3;
+  const ROLL_END = DURATION - 10;
+  const FIN_TIME = DURATION - 9;
+  const FADE_DURATION = 15;
+  const AUDIO_PATH = "assets/audio/support-robot-ending-theme.mp3";
+  const ART_PRIMARY_PATH = "assets/ending/support-robots-ending-watercolor-v2.webp?ending=20260720e1";
+  const ART_FINAL_PATH = "assets/ending/support-robots-ending-watercolor-v5.webp?ending=20260720e1";
+
+  const overlay = document.getElementById("ending-roll-overlay");
+  const artPrimary = document.getElementById("ending-roll-art-primary");
+  const artFinal = document.getElementById("ending-roll-art-final");
+  const artVeil = document.getElementById("ending-roll-art-veil");
+  const band = document.getElementById("ending-roll-band");
+  const track = document.getElementById("ending-roll-track");
+  const fin = document.getElementById("ending-roll-fin");
+  const skipButton = document.getElementById("ending-roll-skip");
+  const replayButton = document.getElementById("ending-roll-replay");
+  const exitButton = document.getElementById("ending-roll-exit");
+  const audio = document.getElementById("ending-roll-audio");
+  const canvas = document.getElementById("ending-roll-motes");
+  const context = canvas?.getContext("2d") || null;
+
+  let active = false;
+  let finished = false;
+  let useClock = true;
+  let clockOrigin = 0;
+  let timelinePaused = false;
+  let pausedAt = 0;
+  let fadeTime = 30;
+  let frameId = 0;
+  let lastFrameAt = performance.now();
+  let canvasDpr = 1;
+  let motes = [];
+
+  function currentTime() {
+    if (timelinePaused) return pausedAt;
+    if (useClock || !audio) return Math.max(0, (performance.now() - clockOrigin) / 1000);
+    return Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+  }
+
+  function useFallbackClock(time = 0) {
+    useClock = true;
+    clockOrigin = performance.now() - Math.max(0, time) * 1000;
+  }
+
+  function seek(time) {
+    const nextTime = Math.max(0, Math.min(DURATION, Number(time) || 0));
+    if (timelinePaused) pausedAt = nextTime;
+    useFallbackClock(nextTime);
+    if (audio) {
+      try {
+        audio.currentTime = nextTime;
+      } catch (error) {
+        // Metadata may still be loading; the fallback clock keeps the roll moving.
+      }
+    }
+  }
+
+  function playAudioFrom(time = 0) {
+    seek(time);
+    if (!audio) return;
+    audio.volume = Math.max(0, Math.min(1, 0.86 * masterVolume()));
+    const playback = audio.play();
+    if (!playback?.then) return;
+    playback.then(() => {
+      if (active && !timelinePaused) useClock = false;
+    }).catch(() => {
+      if (active && !timelinePaused) useFallbackClock(time);
+    });
+  }
+
+  function computeFadeTime() {
+    if (!track) return;
+    const anchor = document.getElementById("ending-roll-fade-anchor");
+    if (!anchor) {
+      fadeTime = 30;
+      return;
+    }
+    const height = track.offsetHeight;
+    const viewportHeight = window.innerHeight;
+    const center = anchor.offsetTop + anchor.offsetHeight / 2;
+    const progress = (viewportHeight + center - viewportHeight * 0.55) / Math.max(1, viewportHeight + height);
+    fadeTime = ROLL_START + Math.max(0, Math.min(1, progress)) * (ROLL_END - ROLL_START);
+  }
+
+  function resizeCanvas() {
+    if (!canvas || !context) return;
+    canvasDpr = Math.min(isLowSpecMode() ? 1 : 2, window.devicePixelRatio || 1);
+    canvas.width = Math.max(1, Math.round(window.innerWidth * canvasDpr));
+    canvas.height = Math.max(1, Math.round(window.innerHeight * canvasDpr));
+    canvas.style.width = `${window.innerWidth}px`;
+    canvas.style.height = `${window.innerHeight}px`;
+  }
+
+  function resetMotes() {
+    const count = isLowSpecMode() ? 0 : 40;
+    motes = Array.from({ length: count }, () => ({
+      x: Math.random(),
+      y: Math.random(),
+      radius: Math.random() * 2 + 0.8,
+      vx: (Math.random() - 0.5) * 0.012,
+      vy: -(Math.random() * 0.02 + 0.008),
+      phase: Math.random() * Math.PI * 2
+    }));
+  }
+
+  function drawMotes(now, delta) {
+    if (!canvas || !context || !motes.length) return;
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.setTransform(canvasDpr, 0, 0, canvasDpr, 0, 0);
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    motes.forEach((mote) => {
+      mote.x += mote.vx * delta + Math.sin(now / 1400 + mote.phase) * 0.00025;
+      mote.y += mote.vy * delta;
+      if (mote.y < -0.02) {
+        mote.y = 1.02;
+        mote.x = Math.random();
+      }
+      if (mote.x < -0.02) mote.x = 1.02;
+      if (mote.x > 1.02) mote.x = -0.02;
+      const twinkle = 0.5 + 0.5 * Math.sin(now / 700 + mote.phase * 3);
+      context.beginPath();
+      context.fillStyle = `rgba(160, 205, 150, ${0.2 + twinkle * 0.24})`;
+      context.arc(mote.x * width, mote.y * height, mote.radius * (0.8 + twinkle * 0.4), 0, Math.PI * 2);
+      context.fill();
+    });
+  }
+
+  function renderFrame(time, now) {
+    if (!track || !fin) return;
+    const finishMix = Math.min(1, Math.max(0, (time - FIN_TIME) / 3));
+    const artMix = Math.min(1, Math.max(0, (time - fadeTime) / FADE_DURATION));
+
+    if (artPrimary) artPrimary.style.opacity = String(artMix * (1 - finishMix));
+    if (artFinal) artFinal.style.opacity = String(artMix * finishMix);
+    if (artVeil) artVeil.style.opacity = String(artMix * (1 - finishMix * 0.65));
+    if (band) band.style.opacity = String(artMix * (1 - finishMix));
+    track.classList.toggle("lit", time > fadeTime + FADE_DURATION * 0.35);
+
+    if (!isLowSpecMode()) {
+      if (artMix > 0 && artPrimary) {
+        const progress = Math.min(1, Math.max(0, (time - fadeTime) / Math.max(1, DURATION - fadeTime)));
+        artPrimary.style.transform = `scale(${1.08 - progress * 0.06}) translateY(${(progress - 0.5) * -1.4}%)`;
+      }
+      if (finishMix > 0 && artFinal) {
+        const finalProgress = Math.min(1, Math.max(0, (time - FIN_TIME) / Math.max(1, DURATION - FIN_TIME)));
+        artFinal.style.transform = `scale(${1.05 - finalProgress * 0.03})`;
+      }
+    }
+
+    const trackHeight = track.offsetHeight;
+    const viewportHeight = window.innerHeight;
+    const rollProgress = Math.min(1, Math.max(0, (time - ROLL_START) / Math.max(1, ROLL_END - ROLL_START)));
+    const y = viewportHeight - rollProgress * (viewportHeight + trackHeight);
+    track.style.transform = `translate3d(-50%, ${y}px, 0)`;
+    fin.style.opacity = String(finishMix);
+
+    const delta = Math.min(0.05, Math.max(0, (now - lastFrameAt) / 1000));
+    lastFrameAt = now;
+    drawMotes(now, delta);
+  }
+
+  function finish() {
+    if (!active || finished) return;
+    finished = true;
+    if (audio) audio.pause();
+    if (frameId) window.cancelAnimationFrame(frameId);
+    frameId = 0;
+    renderFrame(DURATION, performance.now());
+    fin?.classList.add("done");
+    if (skipButton) skipButton.hidden = true;
+    replayButton?.focus({ preventScroll: true });
+  }
+
+  function frame(now) {
+    frameId = 0;
+    if (!active || finished) return;
+    const time = currentTime();
+    renderFrame(time, now);
+    if (time >= DURATION - 0.1 || audio?.ended) {
+      finish();
+      return;
+    }
+    frameId = window.requestAnimationFrame(frame);
+  }
+
+  function scheduleFrame() {
+    if (!frameId && active && !finished) frameId = window.requestAnimationFrame(frame);
+  }
+
+  function resetVisuals() {
+    if (artPrimary) {
+      artPrimary.style.opacity = "0";
+      artPrimary.style.transform = isLowSpecMode() ? "none" : "scale(1.08) translateY(0.7%)";
+    }
+    if (artFinal) {
+      artFinal.style.opacity = "0";
+      artFinal.style.transform = isLowSpecMode() ? "none" : "scale(1.05)";
+    }
+    if (artVeil) artVeil.style.opacity = "0";
+    if (band) band.style.opacity = "0";
+    if (track) {
+      track.classList.remove("lit");
+      track.style.transform = "translate3d(-50%, 100vh, 0)";
+    }
+    if (fin) {
+      fin.classList.remove("done");
+      fin.style.opacity = "0";
+    }
+    if (skipButton) skipButton.hidden = false;
+  }
+
+  function configureText() {
+    const finTitle = document.getElementById("ending-roll-fin-title");
+    const finSubtitle = document.getElementById("ending-roll-fin-subtitle");
+    if (finTitle) finTitle.textContent = endingRollText("fin_title", "FIN");
+    if (finSubtitle) finSubtitle.textContent = endingRollText("fin_subtitle", "UNDERGREEN");
+    if (skipButton) skipButton.textContent = endingRollText("skip_label", "スキップ ▸");
+    if (replayButton) replayButton.textContent = endingRollText("replay_label", "もう一度観る");
+    if (exitButton) exitButton.textContent = endingRollText("exit_label", "スタートへ戻る");
+  }
+
+  function stop() {
+    active = false;
+    finished = false;
+    timelinePaused = false;
+    pausedAt = 0;
+    if (frameId) window.cancelAnimationFrame(frameId);
+    frameId = 0;
+    if (audio) {
+      audio.pause();
+      try {
+        audio.currentTime = 0;
+      } catch (error) {
+        // The source may not have loaded yet.
+      }
+    }
+    overlay?.classList.add("hidden");
+    overlay?.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("ending-roll-active");
+  }
+
+  function play() {
+    if (!overlay || !track || !fin) return;
+    resultPresentation.stop();
+    applyDay30PlayerName();
+    buildEndingRollTrack();
+    configureText();
+    resetVisuals();
+    resizeCanvas();
+    resetMotes();
+    computeFadeTime();
+
+    active = true;
+    finished = false;
+    timelinePaused = false;
+    pausedAt = 0;
+    lastFrameAt = performance.now();
+    state.paused = true;
+    document.getElementById("modal-backdrop")?.classList.add("hidden");
+    document.body.classList.add("ending-roll-active");
+    overlay.classList.remove("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    Object.values(loopAudioPool).forEach((loop) => {
+      loop.pause();
+      loop.volume = 0;
+    });
+
+    if (artPrimary) artPrimary.style.backgroundImage = `url("${ART_PRIMARY_PATH}")`;
+    if (artFinal) artFinal.style.backgroundImage = `url("${ART_FINAL_PATH}")`;
+    if (audio && !audio.dataset.endingSourceReady) {
+      audio.src = cacheBustedAudioSource(AUDIO_PATH);
+      audio.dataset.endingSourceReady = "true";
+      audio.load();
+    }
+
+    playAudioFrom(0);
+    scheduleFrame();
+  }
+
+  function skip() {
+    if (!active || finished) return;
+    seek(FIN_TIME);
+    scheduleFrame();
+  }
+
+  function replay() {
+    if (!active) return;
+    finished = false;
+    timelinePaused = false;
+    pausedAt = 0;
+    resetVisuals();
+    computeFadeTime();
+    lastFrameAt = performance.now();
+    playAudioFrom(0);
+    scheduleFrame();
+  }
+
+  function exit() {
+    if (!active) return;
+    stop();
+    day30ResultToStart();
+  }
+
+  skipButton?.addEventListener("click", skip);
+  replayButton?.addEventListener("click", replay);
+  exitButton?.addEventListener("click", exit);
+  audio?.addEventListener("ended", finish);
+  window.addEventListener("resize", () => {
+    if (!active) return;
+    resizeCanvas();
+    computeFadeTime();
+  }, { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (!active || finished) return;
+    if (document.hidden) {
+      pausedAt = currentTime();
+      timelinePaused = true;
+      audio?.pause();
+      return;
+    }
+    timelinePaused = false;
+    playAudioFrom(pausedAt);
+    scheduleFrame();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (!active || event.key !== "Escape") return;
+    event.preventDefault();
+    if (finished) exit();
+    else skip();
+  });
+
+  return { play, stop, skip, replay, isActive: () => active };
+})();
 function day30ReportMarkup(summary) {
   const config = playModeConfig(summary.mode);
   const status = summary.completed ? "完走" : "途中終了";
   const modeName = config.label;
   const rankingScope = resultRankingStats(summary).scopeLabel;
+  const endingAction = summary.completed && isTimedPlayMode(summary.mode)
+    ? `<button class="primary-button" data-day30-result="ending">${escapeHtml(endingRollText("result_button_label", "エンディングを見る"))}</button>`
+    : "";
   return `<p class="modal-copy">${escapeHtml(modeName)}の記録を保存しました。名前はこの端末の記録一覧に表示されます。</p>
   <label class="day30-name-field">
     <span>PLAYER NAME</span>
@@ -11240,7 +11690,8 @@ function day30ReportMarkup(summary) {
   </div>
   <div class="day30-result-actions">
     <button class="secondary-button" data-day30-result="start">スタートへ戻る</button>
-    <button class="primary-button" data-day30-result="view">閲覧モード</button>
+    <button class="secondary-button" data-day30-result="view">閲覧モード</button>
+    ${endingAction}
   </div>`;
 }
 function showDay30Report(summary) {
@@ -11565,6 +12016,7 @@ function toggleStartModeView() {
 }
 
 function openStartScreen(options = {}) {
+  endingRollPresentation.stop();
   resultPresentation.stop();
   const { persist = true } = options;
   document.body.classList.add("start-screen-open");
@@ -11625,6 +12077,7 @@ function updateStartScreen() {
   const hasProgress = hasStartProgress();
   const selectedConfig = playModeConfig(startModeView);
   const newButton = document.getElementById("start-new");
+  const endingButton = document.getElementById("start-ending");
   continueButton.textContent = `${selectedConfig.label}で新規開始`;
   if (modeButton) {
     modeButton.hidden = true;
@@ -11640,6 +12093,7 @@ function updateStartScreen() {
     newButton.hidden = !hasProgress;
     newButton.textContent = "続きから開始";
   }
+  if (endingButton) endingButton.textContent = endingRollText("result_button_label", "\u30a8\u30f3\u30c7\u30a3\u30f3\u30b0\u3092\u898b\u308b");
   if (recordsTitle) recordsTitle.textContent = selectedConfig.recordsTitle;
   status.textContent = hasProgress
     ? `SAVE SIGNAL // ${PLAY_MODES[state.mode] ? playModeShortLabel(state.mode) : "NORMAL"} // DAY ${String(state.day).padStart(2, "0")} // C${formatNumber(state.money)}`
@@ -12954,6 +13408,7 @@ function bindEvents() {
       event.preventDefault();
       if (day30ResultAction.dataset.day30Result === "start") day30ResultToStart();
       if (day30ResultAction.dataset.day30Result === "view") enterDay30ViewMode();
+      if (day30ResultAction.dataset.day30Result === "ending") endingRollPresentation.play();
       if (day30ResultAction.dataset.day30Result === "share-x") openXShareDraft();
       return;
     }
@@ -13661,6 +14116,7 @@ function bindEvents() {
   document.getElementById("start-continue").addEventListener("click", handleStartPrimary);
   document.getElementById("start-day30")?.addEventListener("click", requestSelectedModeGame);
   document.getElementById("start-new").addEventListener("click", handleStartContinue);
+  document.getElementById("start-ending")?.addEventListener("click", () => endingRollPresentation.play());
   document.getElementById("start-mode-toggle").addEventListener("click", toggleStartModeView);
   document.getElementById("start-title")?.addEventListener("click", handleStartTitleTap);
   bindAppleTouchStartControls();
