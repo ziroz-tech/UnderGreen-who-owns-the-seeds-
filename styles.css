@@ -10619,6 +10619,209 @@ html.apple-touch-device .ios-input-diagnostic pre {
   box-shadow: 0 0 16px rgba(113, 255, 184, 0.14), var(--shadow);
 }
 
+/* Labor assist pilot. Remove with LABOR_ASSIST_EXPERIMENT_DEFAULT_ENABLED. */
+.labor-assist-surface {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.35fr);
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, rgba(245, 214, 91, 0.045), transparent 42%),
+    rgba(2, 14, 10, 0.9);
+}
+
+.labor-assist-surface.guide-inactive {
+  grid-template-columns: 1fr;
+}
+
+.labor-quick-guide,
+.labor-program-summary {
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.labor-quick-guide {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  border-right: 1px solid rgba(245, 214, 91, 0.24);
+}
+
+.labor-quick-guide[hidden] {
+  display: none;
+}
+
+.labor-guide-heading,
+.labor-program-summary-heading,
+.labor-guide-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.labor-guide-heading > div,
+.labor-program-summary-heading > div {
+  min-width: 0;
+}
+
+.labor-assist-code {
+  display: block;
+  color: var(--yellow);
+  font: 800 8px/1.2 Consolas, monospace;
+  letter-spacing: 0.12em;
+}
+
+.labor-guide-heading strong,
+.labor-program-summary-heading strong {
+  display: block;
+  margin-top: 3px;
+  color: var(--green-bright);
+  font: 800 13px/1.35 "Noto Sans JP", sans-serif;
+  letter-spacing: 0;
+}
+
+.labor-guide-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  color: var(--muted);
+  background: transparent;
+  font: 700 20px/1 Consolas, monospace;
+  cursor: pointer;
+}
+
+.labor-guide-close:hover,
+.labor-guide-close:focus-visible {
+  border-color: var(--line-strong);
+  color: var(--yellow);
+  outline: 0;
+}
+
+.labor-guide-progress {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(24px, 1fr));
+  gap: 5px;
+  max-width: 210px;
+}
+
+.labor-guide-progress i {
+  display: block;
+  height: 3px;
+  background: rgba(113, 255, 184, 0.16);
+}
+
+.labor-guide-progress i.active {
+  background: var(--yellow);
+  box-shadow: 0 0 8px rgba(245, 214, 91, 0.36);
+}
+
+.labor-quick-guide p,
+.labor-program-summary p {
+  margin: 0;
+  color: var(--text);
+  font: 600 12px/1.7 "Noto Sans JP", sans-serif;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.labor-guide-actions small,
+.labor-program-summary > small {
+  color: var(--muted);
+  font: 700 8px/1.4 Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.labor-program-summary {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+}
+
+.labor-program-summary p {
+  color: #e7fff4;
+}
+
+.labor-program-summary .secondary-button.compact,
+.labor-guide-actions .primary-button.compact {
+  min-height: 30px;
+  padding: 6px 11px;
+  font-size: 9px;
+}
+
+.blueprint-console.labor-assist-enabled .blueprint-workbench {
+  min-height: 500px;
+  height: clamp(500px, calc(100vh - 330px), 680px);
+}
+
+.labor-assist-focus {
+  position: relative;
+  z-index: 4;
+  outline: 2px solid var(--yellow) !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px rgba(245, 214, 91, 0.28), 0 0 20px rgba(245, 214, 91, 0.22) !important;
+  animation: labor-assist-focus-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.blueprint-pin.labor-assist-focus {
+  transform: scale(1.35);
+  outline-offset: 2px;
+}
+
+@keyframes labor-assist-focus-pulse {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .labor-assist-focus {
+    animation: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .labor-assist-surface {
+    grid-template-columns: 1fr;
+  }
+
+  .labor-quick-guide {
+    border-right: 0;
+    border-bottom: 1px solid rgba(245, 214, 91, 0.24);
+  }
+}
+
+@media (max-width: 820px) {
+  .blueprint-console.labor-assist-enabled .blueprint-workbench {
+    min-height: 0;
+    height: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .labor-guide-heading,
+  .labor-program-summary-heading {
+    align-items: flex-start;
+  }
+
+  .labor-program-summary-heading .secondary-button.compact {
+    width: auto;
+  }
+
+  .labor-guide-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 #labor-screen .blueprint-node.locked-node {
   border-color: rgba(255, 92, 114, 0.58);
 }

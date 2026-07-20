@@ -141,9 +141,9 @@ const SHOP_CATEGORIES = {
   automation: {
     label: "自動化",
     title: "AUTOMATION",
-    subtitle: "ロボット・端末・追加OS",
+    subtitle: "ロボット・高度自動化端末",
     kind: "equipment",
-    items: ["support_robot", "procurement_terminal", "shipping_hatch", "support_os_harvest", "support_os_planting", "support_os_cleaning"]
+    items: ["support_robot", "procurement_terminal", "shipping_hatch"]
   }
 };
 const PROPERTY_LISTING_COUNT = 4;
@@ -607,7 +607,7 @@ const SUPPORT_RESOURCE_EPSILON = 0.001;
 const SUPPORT_TASK_BASE_COOLDOWN = { harvest: 0.055, plant: 0.06, care: 0.055, cleaning: 0.06, procure: 0.08, ship: 0.08 };
 const SUPPORT_TASK_BASE_COST = { harvest: 5, plant: 4, care: 4, cleaning: 6, procure: 4, ship: 4 };
 const SUPPORT_TASKS = Object.keys(SUPPORT_TASK_BASE_COOLDOWN);
-const SUPPORT_TASK_LABELS = { harvest: '収穫', plant: '播種', care: '育成管理', cleaning: '清掃', procure: '調達', ship: '出荷' };
+const SUPPORT_TASK_LABELS = { harvest: '収穫', plant: '種まき', care: '育成管理', cleaning: '清掃', procure: '調達', ship: '出荷' };
 const SUPPORT_ROBOT_IDLE_SCAN_MS = 400;
 const supportRobotProfileReady = new WeakSet();
 const supportAutomationStateReady = new WeakSet();
@@ -3764,7 +3764,7 @@ function normalizeSupportBlueprintNode(rawNode, index) {
     x: Number.isFinite(Number(rawNode?.x)) ? Number(rawNode.x) : 300 + index * 36,
     y: Number.isFinite(Number(rawNode?.y)) ? Number(rawNode.y) : 130 + index * 26
   };
-  if (node.type === "plant") node.cropId = CROPS[rawNode.cropId] ? rawNode.cropId : "lettuce";
+  if (node.type === "plant") node.cropId = rawNode.cropId === "*" || CROPS[rawNode.cropId] ? rawNode.cropId : "lettuce";
   if (node.type === "care") node.cropId = rawNode.cropId === "*" || CROPS[rawNode.cropId] ? rawNode.cropId : "*";
   if (node.type === "procure") {
     node.cropId = CROPS[rawNode.cropId] ? rawNode.cropId : "lettuce";
@@ -6759,6 +6759,32 @@ function runStoryEffect(effect, context = {}) {
     triggerComms(effect.value, context, { skipStory: true });
     return;
   }
+  if (effect.action === "grant_support_os" && effect.value) {
+    const supportOS = state.supportOS || (state.supportOS = {
+      harvest: false,
+      planting: false,
+      cleaning: false
+    });
+    String(effect.value)
+      .split("+")
+      .map((osId) => osId.trim())
+      .filter((osId) => ["harvest", "planting", "cleaning"].includes(osId))
+      .forEach((osId) => {
+        supportOS[osId] = true;
+      });
+    return;
+  }
+  if (effect.action === "activate_labor_package" && effect.value) {
+    const result = typeof window.activateLaborBlueprintPackage === "function"
+      ? window.activateLaborBlueprintPackage(effect.value)
+      : { ok: false, reason: "unavailable" };
+    if (result?.ok) {
+      toast("ホワイト労働を初期ロボットへ設定しました。", "success");
+    } else {
+      toast("自動設定に失敗しました。労務管理から手動で設定してください。", "warning");
+    }
+    return;
+  }
   runCommsEffect(effect);
 }
 
@@ -8460,7 +8486,7 @@ function supportRobotGachaCandidateMarkup(robot, index) {
     .join(" / ");
   const taskDefinitions = [
     ["収穫", "harvest"],
-    ["播種", "plant"],
+    ["種まき", "plant"],
     ["清掃", "cleaning"],
     ["調達", "procure"],
     ["出荷", "ship"]
@@ -9706,18 +9732,29 @@ function notifySupportPlantingShortage(base, robot, cropId, unit, plantingCost) 
   return true;
 }
 
+function firstAvailableSupportSeedId() {
+  // CROPS preserves the CSV/menu order, so automatic planting remains predictable.
+  return Object.keys(CROPS).find((cropId) => (
+    isUnlocked("seed_item", cropId)
+    && Math.max(0, Number(state.seeds?.[cropId]) || 0) > 0
+  )) || "";
+}
+
 function findSupportPlantingTarget(base, robot, cropIdOverride = "", { silent = false } = {}) {
   ensureSupportRobotProfile(robot);
   const planting = robot.plantingAutomation || {};
+  const usesAutomaticBlueprintCrop = cropIdOverride === "*";
   const usesBlueprintCrop = Boolean(cropIdOverride && CROPS[cropIdOverride]);
-  if (!state.supportOS?.planting || (!usesBlueprintCrop && !planting.enabled)) {
+  if (!state.supportOS?.planting || (!usesAutomaticBlueprintCrop && !usesBlueprintCrop && !planting.enabled)) {
     if (!silent) clearSupportPlantingShortageNotice(robot);
     return null;
   }
-  const cropId = usesBlueprintCrop
-    ? cropIdOverride
-    : (CROPS[planting.cropId] ? planting.cropId : "lettuce");
-  if ((usesBlueprintCrop && !isUnlocked("seed_item", cropId)) || (state.seeds[cropId] || 0) <= 0) {
+  const cropId = usesAutomaticBlueprintCrop
+    ? firstAvailableSupportSeedId()
+    : (usesBlueprintCrop
+      ? cropIdOverride
+      : (CROPS[planting.cropId] ? planting.cropId : "lettuce"));
+  if (!cropId || (usesBlueprintCrop && !isUnlocked("seed_item", cropId)) || (state.seeds[cropId] || 0) <= 0) {
     if (!silent) clearSupportPlantingShortageNotice(robot);
     return null;
   }
@@ -11790,6 +11827,7 @@ function unlockDebugState() {
   state.automationTabUnlocked = true;
   state.shopUnlocked = true;
   state.brokerUnlocked = true;
+  state.supportOS = { harvest: true, planting: true, cleaning: true };
   state.timeUnlocked = true;
   grantFloorDevice("support_robot");
   state.unlocks ||= {};
