@@ -15,7 +15,7 @@ episode0_first_illegal_procurement,mara,適当言うんじゃないよ。
 episode0_first_illegal_procurement,mara,"あんた見たところハタチそこそこ。
 旧世界を知らないだろ？"
 episode0_first_illegal_procurement,operator,…直接は知らない。だが、これがある。
-episode0_first_illegal_procurement,operator,[[image:assets/Item/The Book.png|旧世界の古い園芸入門書]]
+episode0_first_illegal_procurement,operator,[[image:assets/Item/The Book.webp|旧世界の古い園芸入門書]]
 episode0_first_illegal_procurement,mara,……。
 episode0_first_illegal_procurement,mara,わかったからそいつをしまいな。
 episode0_first_illegal_procurement,mara,年寄りを少しは気遣ってくれ。心臓が止まりかけたよ。
@@ -177,7 +177,7 @@ story_radar_unlocked,yun,市場に出回るのはレタスだけじゃない。
 story_radar_unlocked,yun,新しい違法栽培者の情報が管理局まで届いたらしい。
 story_radar_unlocked,operator,監視がこちらへ向いたということか。
 story_radar_unlocked,yun,古い監視レーダーをやるよ。
-story_radar_unlocked,yun,[[image:assets/Item/radar.png|古い監視レーダー]]
+story_radar_unlocked,yun,[[image:assets/Item/radar.webp|古い監視レーダー]]
 story_radar_unlocked,yun,管理局の接近を感知したら、電源を落としてやりすごせ。
 story_radar_unlocked,yun,この狭い社会で、痕跡なく動くことは不可能だ。
 story_radar_unlocked,yun,物流には人がかかわる。人が関われば情報として痕跡が残る。
