@@ -5,7 +5,7 @@ replay_label,0,config,もう一度観る,,false
 exit_label,0,config,スタートへ戻る,,false
 fin_title,0,config,FIN,,false
 fin_subtitle,0,config,UNDERGREEN,,false
-after_heading,10,section,─ そ の 後 ─,m,false
+after_heading,10,section,（エンディング案 B－2  人類滅亡、ロボットの繁栄）,m,false
 after_intro,20,story_first,その後,m,false
 human_conflict,30,story,人間は争いを止めることなく,s,false
 human_resources,40,story,限られた資源と食料を奪い合い,s,false
