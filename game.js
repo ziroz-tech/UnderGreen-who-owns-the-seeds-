@@ -31,7 +31,6 @@ let UNLOCK_RULES = [];
 let SCHEDULE_RUMORS = [];
 let INFO_BOOKS = {};
 let INFO_ENTRIES = [];
-let RUNTIME_IMAGE_ASSETS = {};
 let CREDITS = [];
 
 const QUALITY = {
@@ -146,7 +145,7 @@ const SHOP_CATEGORIES = {
   }
 };
 const PROPERTY_LISTING_COUNT = 4;
-const SAFE_ROOM_IMAGE = "assets/bases/safe-room.png";
+const SAFE_ROOM_IMAGE = "assets/bases/safe-room.webp";
 const DEFAULT_ENVIRONMENT = { temp: 24, humidity: 60, co2: 700 };
 const ISO_TILE_WIDTH = 96;
 const ISO_TILE_HEIGHT = 48;
@@ -780,7 +779,6 @@ const REQUIRED_GAME_DATA_PATHS = [
   "data/radio_programs.csv",
   "data/info_books.csv",
   "data/info_entries.csv",
-  "data/runtime_images.csv",
   "data/credits.csv",
   "data/comm_events.csv",
   "data/story_events.csv",
@@ -792,20 +790,10 @@ const REQUIRED_GAME_DATA_PATHS = [
 const csvTextCache = new Map();
 const CHARACTER_ASSET_CACHE_KEY = Date.now().toString(36);
 
-function runtimeAssetUrl(value) {
+function freshCharacterAssetUrl(value) {
   const raw = String(value ?? "");
   const url = raw.trim();
-  if (!url) return raw;
-  const suffixIndex = url.search(/[?#]/);
-  const path = (suffixIndex >= 0 ? url.slice(0, suffixIndex) : url).replace(/^\.\//, "");
-  const suffix = suffixIndex >= 0 ? url.slice(suffixIndex) : "";
-  return RUNTIME_IMAGE_ASSETS[path] ? `${RUNTIME_IMAGE_ASSETS[path]}${suffix}` : raw;
-}
-
-function freshCharacterAssetUrl(value) {
-  const raw = runtimeAssetUrl(value);
-  const url = raw.trim();
-  if (!/^(?:\.\/)?assets\/(?:runtime\/)?characters\//i.test(url) || /[?&]ugchar=/.test(url)) return raw;
+  if (!/^(?:\.\/)?assets\/characters\//i.test(url) || /[?&]ugchar=/.test(url)) return raw;
   const hashIndex = url.indexOf("#");
   const base = hashIndex >= 0 ? url.slice(0, hashIndex) : url;
   const hash = hashIndex >= 0 ? url.slice(hashIndex) : "";
@@ -956,7 +944,7 @@ function parseStoryLineText(value) {
   const raw = normalizeStoryDirectiveText(value);
   const imageMatch = raw.match(/^\[\[image\s*:\s*([^|\]]+)(?:\|([^\]]+))?\]\]$/i);
   if (!imageMatch) return { kind: "text", text: value || "" };
-  const imageUrl = runtimeAssetUrl(imageMatch[1].trim());
+  const imageUrl = imageMatch[1].trim();
   const imageSummary = String(imageMatch[2] || imageUrl).trim();
   return { kind: "image", text: "", imageUrl, imageSummary };
 }
@@ -992,11 +980,6 @@ async function loadRequiredCsv(path, apply) {
 }
 
 async function loadExternalData() {
-  await loadRequiredCsv("data/runtime_images.csv", (rows) => {
-    RUNTIME_IMAGE_ASSETS = Object.fromEntries(rows
-      .map((row) => [String(row.source || "").replace(/^\.\//, ""), row.optimized])
-      .filter(([source, optimized]) => source && optimized));
-  });
   await loadRequiredCsv("data/credits.csv", (rows) => {
     CREDITS = rows.map((row) => ({
       section: row.section || "credits",
@@ -1368,7 +1351,7 @@ async function loadExternalData() {
       title: row.title,
       kicker: row.kicker,
       description: row.description,
-      thumbnail: runtimeAssetUrl(row.thumbnail),
+      thumbnail: row.thumbnail,
       defaultEntryId: row.defaultEntryId,
       style: row.style || "book",
       unlocked: row.unlocked !== "false"
@@ -1382,7 +1365,7 @@ async function loadExternalData() {
       title: row.title,
       kicker: row.kicker,
       category: row.category,
-      thumbnail: runtimeAssetUrl(row.thumbnail),
+      thumbnail: row.thumbnail,
       cropId: row.cropId,
       body: row.body,
       method: row.method,
@@ -1425,7 +1408,7 @@ async function loadExternalData() {
       layout: row.layout || "duel",
       kicker: row.kicker,
       title: row.title,
-      background: runtimeAssetUrl(row.background),
+      background: row.background,
       speakers,
       speakerSides: storySpeakerSideLists(speakers),
       pages,
@@ -8474,7 +8457,7 @@ function supportRobotGachaCandidateMarkup(robot, index) {
     const grade = supportTaskGrade(robot, task);
     return '<span>' + escapeHtml(label) + '<b class="grade-' + escapeHtml(grade.toLowerCase()) + '">' + escapeHtml(grade) + '</b></span>';
   }).join("");
-  const sprite = FLOOR_DEVICES.support_robot?.sprite || FLOOR_DEVICES.support_robot?.icon || "assets/characters/supportRobot-iso-leftdown.png";
+  const sprite = FLOOR_DEVICES.support_robot?.sprite || FLOOR_DEVICES.support_robot?.icon || "assets/characters/supportRobot-iso-leftdown.webp";
   const blueprintTaskCount = robot.supportBlueprint?.nodes?.filter((node) => node.type === "task").length || 0;
   const tags = tagMarkup(robot.tags, EQUIPMENT_TAGS);
   return [
@@ -8745,7 +8728,7 @@ function showSupportRobotGachaBoot() {
   const line = document.getElementById("robot-gacha-boot-line");
   const rarity = supportRobotPersonalityRarity(robot);
   const personalities = supportRobotPersonalities(robot);
-  const sprite = FLOOR_DEVICES.support_robot?.sprite || FLOOR_DEVICES.support_robot?.icon || "assets/characters/supportRobot-iso-leftdown.png";
+  const sprite = FLOOR_DEVICES.support_robot?.sprite || FLOOR_DEVICES.support_robot?.icon || "assets/characters/supportRobot-iso-leftdown.webp";
   if (image) image.src = sprite;
   if (name) name.textContent = supportRobotDisplayName(robot);
   if (rarityNode) {

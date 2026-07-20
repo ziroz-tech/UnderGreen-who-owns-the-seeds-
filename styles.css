@@ -7374,7 +7374,7 @@ body.start-screen-open {
     filter: saturate(1.14) brightness(1.08) drop-shadow(0 0 18px rgba(128,255,112,0.3));
   }
 }
-/* Photoshop-like Color Dodge for title_lettuce_grow.png */
+/* Photoshop-like Color Dodge for title_lettuce_grow.webp */
 .start-grow {
   z-index: 3;
   mix-blend-mode: color-dodge;
