@@ -2813,6 +2813,32 @@ function titleStatsSinceAllMarketsUnlocked() {
   };
 }
 
+function occupiedGridCellCount(base) {
+  if (!base) return 0;
+  const occupiedCells = new Set();
+  const markOccupiedCells = (item, kind) => {
+    if (!item?.placed || !Number.isFinite(Number(item.x)) || !Number.isFinite(Number(item.y))) return;
+    const size = footprint({ ...item, kind });
+    for (let offsetY = 0; offsetY < size.height; offsetY += 1) {
+      for (let offsetX = 0; offsetX < size.width; offsetX += 1) {
+        const x = Number(item.x) + offsetX;
+        const y = Number(item.y) + offsetY;
+        if (x < 0 || y < 0 || x >= base.cols || y >= base.rows) continue;
+        occupiedCells.add(cellKey(x, y));
+      }
+    }
+  };
+  (base.shelves || []).forEach((item) => markOccupiedCells(item, "unit"));
+  (base.floorDevices || []).forEach((item) => markOccupiedCells(item, "device"));
+  return occupiedCells.size;
+}
+
+function initialBaseOccupiedCellCount() {
+  const bases = ownedBases();
+  const initialBase = bases.find((base) => base.code === "SAFE-ROOM-01") || bases[0];
+  return occupiedGridCellCount(initialBase);
+}
+
 function progressionValue(key) {
   if (key === "shopUnlocked") return state.shopUnlocked;
   if (key === "marketTabUnlocked") return state.marketTabUnlocked;
@@ -2824,6 +2850,7 @@ function progressionValue(key) {
   if (key === "unitsSold") return state.tradeStats?.unitsSold || 0;
   if (key === "money") return state.money || 0;
   if (key === "baseCount") return ownedBases().length;
+  if (key === "initialBaseOccupied") return initialBaseOccupiedCellCount();
   if (key === "radarUnlocked") return ensureRadarState().unlocked;
   if (key === "suspicion") return ensureRadarState().suspicion;
   if (key === "radarPatrols") return ensureRadarState().patrolCount;
