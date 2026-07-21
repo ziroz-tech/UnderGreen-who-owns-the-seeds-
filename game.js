@@ -3661,6 +3661,19 @@ function createDefaultSupportBlueprint() {
   };
 }
 
+function createSupportBlueprintPreset(presetId = "white-work") {
+  const normalizedPresetId = String(presetId || "").trim();
+  if (!normalizedPresetId || normalizedPresetId === "empty") {
+    return createDefaultSupportBlueprint();
+  }
+  const result = typeof window.createLaborBlueprintPackageBlueprint === "function"
+    ? window.createLaborBlueprintPackageBlueprint(normalizedPresetId)
+    : null;
+  return result?.ok && result.blueprint
+    ? normalizeSupportBlueprint(result.blueprint)
+    : createDefaultSupportBlueprint();
+}
+
 function migrateLegacySupportBlueprint(source) {
   const fallback = createDefaultSupportBlueprint();
   const rawNodes = Array.isArray(source?.nodes) ? source.nodes : [];
@@ -4041,8 +4054,16 @@ function resetSupportBlueprintRuntime(robot) {
     lastStatus: SUPPORT_BLUEPRINT_STATUS.FAILURE
   };
 }
-function createFloorDevice(type) {
+function createFloorDevice(type, options = {}) {
   const device = { id: makeId("device"), type, placed: false, x: null, y: null, tags: unitTags(type), dirt: 0 };
+  if (type === "support_robot") {
+    const requestedPreset = typeof options.supportBlueprintPreset === "string"
+      ? options.supportBlueprintPreset
+      : hasAllBasicSupportOS()
+        ? "white-work"
+        : "empty";
+    device.supportBlueprint = createSupportBlueprintPreset(requestedPreset);
+  }
   ensureSupportRobotProfile(device);
   return device;
 }
@@ -4753,6 +4774,10 @@ function hasAnySupportOS() {
   return Boolean(state.supportOS?.harvest || state.supportOS?.planting || state.supportOS?.cleaning);
 }
 
+function hasAllBasicSupportOS() {
+  return Boolean(state.supportOS?.harvest && state.supportOS?.planting && state.supportOS?.cleaning);
+}
+
 function findSupportRobotById(robotId) {
   for (const base of ownedBases()) {
     const robot = base.floorDevices?.find((device) => device.id === robotId && device.type === "support_robot");
@@ -4780,7 +4805,7 @@ function hasCompletedCommsTrigger(trigger) {
   return commCompleted || storyCompleted;
 }
 
-function grantFloorDevice(type) {
+function grantFloorDevice(type, options = {}) {
   if (!FLOOR_DEVICES[type]) return false;
   if (type === "support_robot") {
     if (supportRobotExists()) {
@@ -4789,7 +4814,13 @@ function grantFloorDevice(type) {
     }
     state.supportRobotGranted = true;
   }
-  const device = createFloorDevice(type);
+  const device = createFloorDevice(type, type === "support_robot"
+    ? {
+        supportBlueprintPreset: typeof options.supportBlueprintPreset === "string"
+          ? options.supportBlueprintPreset
+          : "empty"
+      }
+    : options);
   if (type === "support_robot") {
     device.isInitialSupportRobot = true;
     device.robotName = "サポートロボット";
@@ -6772,6 +6803,17 @@ function runStoryEffect(effect, context = {}) {
       .forEach((osId) => {
         supportOS[osId] = true;
       });
+    return;
+  }
+  if (effect.action === "activate_labor_package_all" && effect.value) {
+    const result = typeof window.activateLaborBlueprintPackageForAll === "function"
+      ? window.activateLaborBlueprintPackageForAll(effect.value)
+      : { ok: false, reason: "unavailable" };
+    if (result?.ok) {
+      toast("ホワイト労働を所有ロボット" + result.count + "台へ設定しました。", "success");
+    } else {
+      toast("自動設定に失敗しました。労務管理から手動で設定してください。", "warning");
+    }
     return;
   }
   if (effect.action === "activate_labor_package" && effect.value) {
@@ -11829,7 +11871,7 @@ function unlockDebugState() {
   state.brokerUnlocked = true;
   state.supportOS = { harvest: true, planting: true, cleaning: true };
   state.timeUnlocked = true;
-  grantFloorDevice("support_robot");
+  grantFloorDevice("support_robot", { supportBlueprintPreset: "white-work" });
   state.unlocks ||= {};
   UNLOCK_RULES.forEach((rule) => {
     state.unlocks[rule.id] = true;

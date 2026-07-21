@@ -102,10 +102,9 @@
       id: "white-work",
       label: "ホワイト労働",
 
-      coreKeys: [],
+      coreKeys: ["harvest", "plant", "cleaning"],
       nodes: [
         { key: "harvest", type: "harvest", x: 620, y: 300 },
-        { key: "care", type: "care", x: 900, y: 300, args: { cropId: "*" } },
         { key: "plant", type: "plant", x: 1180, y: 300, args: { cropId: "lettuce" } },
         { key: "cleaning", type: "cleaning", x: 1460, y: 300 },
         { key: "energy", type: "condition", x: 320, y: 410, args: { conditionSource: "energy", operator: "lte", value: 0, cropId: "lettuce" } },
@@ -119,7 +118,6 @@
       ], [
         { key: "branch", outPin: "false" },
         { key: "harvest", outPin: "failure" },
-        { key: "care", outPin: "failure" },
         { key: "plant", outPin: "failure" },
         { key: "cleaning", outPin: "failure" }
       ]],
@@ -891,28 +889,19 @@
     return packageDefinition.nodes.find((node) => status.activeKeys.has(node.key))?.key || "";
   }
 
-  function activateLaborBlueprintPackage(packageId, { robotId = "" } = {}) {
-    const roster = supportRobotRoster();
-    const record = roster.find(({ robot }) => robot.id === robotId)
-      || roster.find(({ robot }) => robot.isInitialSupportRobot)
-      || roster[0]
-      || null;
-    if (!record) return { ok: false, reason: "no_robot" };
-
+  function createLaborBlueprintPackageBlueprint(packageId) {
     const packageDefinition = laborBlueprintPackageById(packageId);
     const status = laborBlueprintPackageStatus(packageDefinition);
-    if (!status.selectable) return { ok: false, reason: "package_locked" };
+    if (!status.selectable) {
+      return {
+        ok: false,
+        reason: "package_locked",
+        packageId: packageDefinition.id,
+        skipped: status.skipped.map((entry) => entry.key)
+      };
+    }
 
-    ensureSupportRobotProfile(record.robot);
-    const currentBlueprint = normalizeSupportBlueprint(record.robot.supportBlueprint);
-    const root = currentBlueprint.nodes.find((node) => node.id === currentBlueprint.rootId)
-      || currentBlueprint.nodes.find((node) => node.type === "event");
-    const sourceBlueprint = {
-      version: 3,
-      rootId: root.id,
-      nodes: [{ ...root }],
-      links: []
-    };
+    const sourceBlueprint = createDefaultSupportBlueprint();
     const result = appendSupportBlueprintPackage(
       sourceBlueprint,
       packageDefinition,
@@ -922,29 +911,81 @@
     const entryKey = laborBlueprintPackageEntryKey(packageDefinition, status);
     const entryId = result.nodeIdsByKey[entryKey];
     const entryNode = result.blueprint.nodes.find((node) => node.id === entryId);
-    if (!entryNode) return { ok: false, reason: "entry_missing" };
+    const root = result.blueprint.nodes.find((node) => node.id === result.blueprint.rootId)
+      || result.blueprint.nodes.find((node) => node.type === "event");
+    if (!root || !entryNode) {
+      return {
+        ok: false,
+        reason: "entry_missing",
+        packageId: packageDefinition.id,
+        skipped: status.skipped.map((entry) => entry.key)
+      };
+    }
 
     const rootLink = {
       id: makeId("bp-link"),
-      from: result.blueprint.rootId,
+      from: root.id,
       fromPin: laborDefaultPin("event", "output", "exec"),
       to: entryNode.id,
       toPin: laborDefaultPin(entryNode.type, "input", "exec"),
       order: -1
     };
-    record.robot.supportBlueprint = normalizeSupportBlueprint({
-      ...result.blueprint,
-      links: [rootLink, ...result.blueprint.links]
-    });
-    selectedLaborRobotId = record.robot.id;
+    return {
+      ok: true,
+      blueprint: normalizeSupportBlueprint({
+        ...result.blueprint,
+        links: [rootLink, ...result.blueprint.links]
+      }),
+      packageId: packageDefinition.id,
+      skipped: status.skipped.map((entry) => entry.key)
+    };
+  }
+
+  function setLaborBlueprintPackageForRobot(record, packageId) {
+    if (!record?.robot) return { ok: false, reason: "no_robot" };
+    ensureSupportRobotProfile(record.robot);
+    const result = createLaborBlueprintPackageBlueprint(packageId);
+    if (!result.ok) return result;
+    record.robot.supportBlueprint = result.blueprint;
     resetLaborRobotBlueprintRuntime(record.robot);
+    return { ...result, robotId: record.robot.id };
+  }
+
+  function activateLaborBlueprintPackage(packageId, { robotId = "" } = {}) {
+    const roster = supportRobotRoster();
+    const record = roster.find(({ robot }) => robot.id === robotId)
+      || roster.find(({ robot }) => robot.isInitialSupportRobot)
+      || roster[0]
+      || null;
+    const result = setLaborBlueprintPackageForRobot(record, packageId);
+    if (!result.ok) return result;
+    selectedLaborRobotId = result.robotId;
+    saveGame();
+    renderLaborBlueprint();
+    return result;
+  }
+
+  function activateLaborBlueprintPackageForAll(packageId) {
+    const roster = supportRobotRoster();
+    if (!roster.length) return { ok: false, reason: "no_robot" };
+
+    const results = [];
+    for (const record of roster) {
+      const result = setLaborBlueprintPackageForRobot(record, packageId);
+      if (!result.ok) return result;
+      results.push(result);
+    }
+    if (!selectedLaborRobotId) {
+      const initial = roster.find(({ robot }) => robot.isInitialSupportRobot) || roster[0];
+      selectedLaborRobotId = initial?.robot?.id || "";
+    }
     saveGame();
     renderLaborBlueprint();
     return {
       ok: true,
-      robotId: record.robot.id,
-      packageId: packageDefinition.id,
-      skipped: status.skipped.map((entry) => entry.key)
+      packageId: results[0]?.packageId || packageId,
+      robotIds: results.map((result) => result.robotId),
+      count: results.length
     };
   }
 
@@ -2828,5 +2869,7 @@
   window.supportBlueprintNodeUnlockState = supportBlueprintNodeUnlockState;
   window.connectSupportBlueprintPins = connectSupportBlueprintPins;
   window.clearLaborBlueprintInteraction = clearLaborBlueprintInteraction;
+  window.createLaborBlueprintPackageBlueprint = createLaborBlueprintPackageBlueprint;
   window.activateLaborBlueprintPackage = activateLaborBlueprintPackage;
+  window.activateLaborBlueprintPackageForAll = activateLaborBlueprintPackageForAll;
 })();
