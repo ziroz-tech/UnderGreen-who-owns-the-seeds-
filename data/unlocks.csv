@@ -20,7 +20,7 @@ shop_water_cartridge,shop_item,water_cartridge,,,初期から購入可能,true
 shop_nutrient_cartridge,shop_item,nutrient_cartridge,,,初期から購入可能,true
 shop_fridge,shop_item,fridge,unitPlaced:box>=1|revenue>=1600,unlock_storage,BOX運用後に累計売上1600で保管設備が解放されます,false
 market_medical,market,medical,revenue>=1000,market_medical_unlocked,累計売上1000Cで接続,false
-broker_access,broker,broker,unit:pod>=4|unitPlaced:pod>=4,property_broker_unlocked,追加PODを3台購入して全4台を設置すると物件紹介が届きます,false
+broker_access,broker,broker,initialBaseOccupied>=5,property_broker_unlocked,初期拠点の5マスを設備で占有すると物件紹介が届きます,false
 automation_os_access,tab,automation,revenue>=1500,automation_os_unlocked,累計売上1500Cで自動化OS取引を解放,false
 market_upper,market,upper,revenue>=3000,market_upper_unlocked,累計売上3000Cで接続,false
 market_rebel,market,rebel,revenue>=3000,market_rebel_unlocked,累計売上3000Cで上層市場の次に接続,false
@@ -28,6 +28,3 @@ story_allmarket_unlocked,story,allmarket_unlocked,allMarketsUnlocked=true,allmar
 shop_support_robot,shop_item,support_robot,shopUnlocked=true|device:support_robot>=1,,サポートロボット合流後に追加機を購入できます,false
 shop_procurement_terminal,shop_item,procurement_terminal,shopUnlocked=true|device:support_robot>=1,,サポートロボット合流後に設置型調達端末を購入できます,false
 shop_shipping_hatch,shop_item,shipping_hatch,shopUnlocked=true|device:support_robot>=1,,サポートロボット合流後に出荷用搬出口を購入できます,false
-shop_support_os_harvest,shop_item,support_os_harvest,shopUnlocked=true|device:support_robot>=1,,サポートロボット合流後に収穫OSを購入できます,false
-shop_support_os_cleaning,shop_item,support_os_cleaning,shopUnlocked=true|device:support_robot>=1,,サポートロボット合流後にお掃除OSを購入できます,false
-shop_support_os_planting,shop_item,support_os_planting,shopUnlocked=true|device:support_robot>=1,,サポートロボット合流後に植え付けOSを購入できます,false
