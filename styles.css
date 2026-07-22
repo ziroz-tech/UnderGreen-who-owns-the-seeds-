@@ -529,8 +529,7 @@ body.ui-scale-large .screen {
 .tab {
   position: relative;
   min-width: 190px;
-  min-height: 61px;
-  padding: 13px 22px 21px;
+  padding: 15px 22px;
   border: 0;
   border-right: 1px solid var(--line);
   color: var(--muted);
@@ -551,64 +550,22 @@ body.ui-scale-large .screen {
   background: linear-gradient(180deg, rgba(35, 91, 67, 0.22), rgba(20, 45, 35, 0.1));
 }
 
-.tab.locked:not(.feature-locked),
-.tab:disabled:not(.feature-locked) {
+.tab.locked,
+.tab:disabled {
   opacity: .42;
   cursor: not-allowed;
   filter: grayscale(.7);
 }
 
-.tab.feature-locked {
-  opacity: .72;
-  color: rgba(143, 172, 159, .74);
-  border-top: 1px dashed rgba(245, 214, 91, .24);
-  background: linear-gradient(180deg, rgba(245, 214, 91, .045), rgba(5, 15, 11, .14));
-  cursor: help;
-  filter: grayscale(.35);
-  box-shadow: inset 0 -1px rgba(245, 214, 91, .24);
-}
-
-.tab.feature-locked::before {
-  content: "LOCK // 未接続";
+.tab.locked::before {
+  content: "LOCKED";
   position: absolute;
-  top: 5px;
-  right: 9px;
+  right: 12px;
+  bottom: 5px;
   color: var(--red);
   font: 700 7px Consolas, monospace;
   letter-spacing: .14em;
-  animation: locked-tab-signal 2.4s ease-in-out infinite;
 }
-
-.tab.feature-locked::after {
-  content: attr(data-lock-hint);
-  position: absolute;
-  right: 10px;
-  bottom: 5px;
-  left: 22px;
-  overflow: hidden;
-  color: rgba(245, 214, 91, .72);
-  font: 700 8px/1.2 "Noto Sans JP", sans-serif;
-  letter-spacing: 0;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@keyframes locked-tab-signal {
-  0%, 100% { opacity: .52; }
-  50% { opacity: 1; }
-}
-
-html.low-spec-mode .tab.feature-locked::before {
-  animation: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab.feature-locked::before {
-    animation: none;
-  }
-}
-
 .tab.new-tab-alert:not(.locked)::before {
   content: "!";
   position: absolute;
@@ -3220,19 +3177,23 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
   box-shadow: 0 0 18px rgba(114, 255, 184, .11);
 }
 
-.shop-category-card.left,
-.shop-category-card.right,
-.shop-category-card.far-left,
-.shop-category-card.far-right {
-  opacity: .42;
+.shop-category-card.left:not(.locked),
+.shop-category-card.right:not(.locked),
+.shop-category-card.far-left:not(.locked),
+.shop-category-card.far-right:not(.locked) {
+  opacity: .8;
   transform: none;
+  color: rgba(225, 242, 233, .96);
+  border-color: rgba(114, 255, 184, .44);
+  background: rgba(7, 22, 16, .94);
+  filter: saturate(.98) brightness(.98);
 }
 
 .shop-category-card:hover {
   border-color: var(--green-bright);
   color: var(--text);
-  opacity: .72;
-  filter: grayscale(.18) saturate(.9) brightness(.86);
+  opacity: 1;
+  filter: saturate(1.02) brightness(1.03);
 }
 
 .shop-category-card.center:hover {
@@ -13473,5 +13434,67 @@ html.low-spec-mode #labor-screen .blueprint-pin-entry.disconnectable .blueprint-
 
   #labor-screen .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover::after {
     animation: none !important;
+  }
+}
+
+/* Unseen unlocked market and procurement entries */
+.market-shortcut {
+  position: relative;
+}
+
+.has-unseen-entry:not(.locked) {
+  border-color: rgba(245, 214, 91, .58);
+  box-shadow: inset 0 0 0 1px rgba(245, 214, 91, .1), 0 0 14px rgba(245, 214, 91, .08);
+}
+
+.market-card.carousel-market.has-unseen-entry:not(.center) {
+  opacity: .72;
+  filter: saturate(.9) brightness(.86);
+}
+
+.shop-category-card.has-unseen-entry:not(.center):not(.locked) {
+  opacity: 1;
+  color: var(--text);
+  border-color: rgba(255, 230, 111, .86);
+  filter: saturate(1.04) brightness(1.04);
+  box-shadow: inset 0 0 0 1px rgba(245, 214, 91, .14), 0 0 17px rgba(245, 214, 91, .16);
+}
+
+.unseen-entry-badge {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #fff6c7;
+  border-radius: 2px;
+  color: #07110d;
+  background: #ffe56e;
+  box-shadow: 0 0 0 3px rgba(245, 214, 91, .16), 0 0 20px rgba(255, 229, 110, .72);
+  pointer-events: none;
+  font: 900 12px/1 Consolas, monospace;
+  font-style: normal;
+  animation: tab-alert-blink 1.15s ease-in-out infinite;
+}
+
+.market-shortcut .unseen-entry-badge {
+  top: 4px;
+  right: 4px;
+  width: 17px;
+  height: 17px;
+  font-size: 10px;
+}
+
+
+html.low-spec-mode .unseen-entry-badge {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unseen-entry-badge {
+    animation: none;
   }
 }
