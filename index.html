@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260720u3">
+    <link rel="stylesheet" href="styles.css?v=20260722m2">
   <link rel="stylesheet" href="radar.css?v=20260720u2">
 </head>
 <body>
@@ -139,23 +139,25 @@
         </div>
         <div class="market-selector" id="market-selector"></div>
         <div class="market-shortcuts" id="market-shortcuts" aria-label="Market quick routes"></div>
-        <div class="price-board">
-          <div class="section-label"><span>市場活況</span><small>TODAY UNIT / B QUALITY</small></div>
-          <div class="market-signal-row" id="market-signal-row"></div>
-          <div class="price-grid" id="price-grid"></div>
-        </div>
-        <div class="inventory-panel">
-          <div class="section-label inventory-section-label">
-            <span>HARVEST INVENTORY</span>
-            <div class="inventory-sale-actions">
-              <small>SELECT STOCK TO SELL</small>
-              <button class="sell-all-button" id="sell-all-button" data-sell-all type="button" disabled>
-                <span data-sell-all-label>一括売却</span>
-                <strong data-sell-all-value>NO STOCK</strong>
-              </button>
-            </div>
+        <div class="market-trade-layout">
+          <div class="price-board">
+            <div class="section-label"><span>市場活況</span><small>TODAY UNIT / B QUALITY</small></div>
+            <div class="market-signal-row" id="market-signal-row"></div>
+            <div class="price-grid" id="price-grid"></div>
           </div>
-          <div id="inventory-list"></div>
+          <div class="inventory-panel">
+            <div class="section-label inventory-section-label">
+              <span>HARVEST INVENTORY</span>
+              <div class="inventory-sale-actions">
+                <small>SELECT STOCK TO SELL</small>
+                <button class="sell-all-button" id="sell-all-button" data-sell-all type="button" disabled>
+                  <span data-sell-all-label>一括売却</span>
+                  <strong data-sell-all-value>NO STOCK</strong>
+                </button>
+              </div>
+            </div>
+            <div id="inventory-list"></div>
+          </div>
         </div>
       </section>
 
@@ -593,8 +595,8 @@
   </div>
 
   <div id="toast-container" aria-live="polite"></div>
-  <script src="labor-blueprint.js?v=20260721s1"></script>
-<script src="game.js?v=20260721s1"></script>
+  <script src="labor-blueprint.js?v=20260721w1"></script>
+<script src="game.js?v=20260721p1"></script>
   <script src="radar.js?v=20260720u2"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>

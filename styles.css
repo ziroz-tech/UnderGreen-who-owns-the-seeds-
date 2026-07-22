@@ -6517,14 +6517,15 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
 
 .market-trade-layout {
   display: grid;
-  grid-template-columns: minmax(380px, .95fr) minmax(480px, 1.25fr);
+  grid-template-columns: minmax(340px, .72fr) minmax(0, 1.28fr);
   gap: 16px;
   align-items: start;
 }
 
-.market-trade-layout .price-board,
-.market-trade-layout .inventory-panel {
-  min-height: 320px;
+.market-trade-layout > .price-board,
+.market-trade-layout > .inventory-panel {
+  min-width: 0;
+  min-height: 420px;
 }
 
 .market-trade-layout .price-grid {
@@ -6535,6 +6536,52 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
   grid-template-columns: minmax(160px, 1fr) 34px 70px 82px 104px 136px;
 }
 
+.market-trade-layout #inventory-list {
+  max-height: 560px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(113, 255, 184, .42) rgba(4, 14, 10, .66);
+  scrollbar-width: thin;
+}
+
+.market-trade-layout #inventory-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.market-trade-layout #inventory-list::-webkit-scrollbar-track {
+  background: rgba(4, 14, 10, .66);
+}
+
+.market-trade-layout #inventory-list::-webkit-scrollbar-thumb {
+  border: 2px solid rgba(4, 14, 10, .66);
+  background: rgba(113, 255, 184, .42);
+}
+
+@media (max-width: 1280px) and (min-width: 981px) {
+  .market-trade-layout .inventory-row {
+    grid-template-columns: minmax(132px, 1fr) 34px 78px 96px 126px;
+  }
+
+  .market-trade-layout .inventory-row .age-cell {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .market-trade-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .market-trade-layout > .price-board,
+  .market-trade-layout > .inventory-panel {
+    min-height: 0;
+  }
+
+  .market-trade-layout #inventory-list {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
 @keyframes marketCenterSettle {
   0% { transform: translate(-50%, -50%) scale(.91); filter: brightness(1.25) saturate(1.25); }
   62% { transform: translate(-50%, -50%) scale(1.035); }
@@ -6548,10 +6595,6 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
 }
 
 @media (max-width: 1100px) {
-  .market-trade-layout {
-    grid-template-columns: 1fr;
-  }
-
   .market-card.carousel-market {
     width: min(620px, 78%);
     grid-template-columns: 128px minmax(0, 1fr);
@@ -6562,9 +6605,6 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
     height: 128px;
   }
 
-  .market-trade-layout .inventory-row {
-    grid-template-columns: minmax(150px, 1.2fr) 34px 70px 80px 104px 136px;
-  }
 }
 
 @media (max-width: 760px) {
