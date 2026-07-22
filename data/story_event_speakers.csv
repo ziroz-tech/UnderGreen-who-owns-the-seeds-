@@ -35,7 +35,11 @@ story_radar_tutorial_success,yun,left,0,ユン,下層市場,assets/characters/ma
 story_radar_tutorial_success,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
 story_radar_tutorial_failure,yun,left,0,ユン,下層市場,assets/characters/market-lower.webp
 story_radar_tutorial_failure,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
-story_labor_first_open,support_robot,left,0,サポートロボット,労務管理支援,assets/characters/supportRobot-iso-leftdown.webp
-story_labor_first_open,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
+story_labor_connection_training_v1,support_robot,left,0,サポートロボット,労務管理支援,assets/characters/supportRobot-iso-leftdown.webp
+story_labor_connection_training_v1,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
+story_labor_tutorial_cleaning_completed,support_robot,left,0,サポートロボット,労務管理支援,assets/characters/supportRobot-iso-leftdown.webp
+story_labor_tutorial_cleaning_completed,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
+story_labor_tutorial_completed,support_robot,left,0,サポートロボット,労務管理支援,assets/characters/supportRobot-iso-leftdown.webp
+story_labor_tutorial_completed,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
 story_allmarket_unlocked,mara,left,0,マーラ,種ブローカー,assets/characters/seed-broker.webp
 story_allmarket_unlocked,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
