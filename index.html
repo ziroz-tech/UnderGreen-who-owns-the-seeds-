@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260722u10">
+    <link rel="stylesheet" href="styles.css?v=20260723s1">
   <link rel="stylesheet" href="radar.css?v=20260720u2">
 </head>
 <body>
@@ -100,6 +100,10 @@
             <article class="base-banner" id="base-banner"></article>
             <div class="facility-grid-shell">
               <div class="facility-grid-toolbar" id="facility-grid-toolbar"></div>
+              <div class="facility-camera-transition" aria-hidden="true">
+                <span class="facility-camera-scan"></span>
+                <strong data-camera-transition-label>VIEW A // FRONT</strong>
+              </div>
               <div class="facility-clean-tools" aria-label="清掃ツール">
                 <span class="tool-palette-label">TOOLBOX</span>
                 <button class="clean-tool-button tool-brush" data-clean-tool="brush" data-tooltip="BRUSH // こすって清掃" type="button" aria-label="ブラシ" title="ブラシ // こすって清掃">
@@ -426,6 +430,9 @@
     <div class="story-comms-sweep" aria-hidden="true"></div>
     <div class="story-comms-window" role="dialog" aria-modal="true" aria-labelledby="story-comms-title">
       <button class="story-comms-close" id="story-comms-close" type="button" aria-label="ストーリー通信を閉じる">×</button>
+      <button class="story-comms-skip" type="button" data-story-skip hidden aria-label="会話をスキップ">
+        <span>SKIP</span><small>会話を省略</small>
+      </button>
       <div class="story-comms-alert" aria-hidden="true">!</div>
       <div class="story-side-stack story-side-left" id="story-left-stack" aria-label="左側の話者"></div>
       <div class="story-transcript">
@@ -446,6 +453,9 @@
     <div class="story-image-popup hidden" id="story-image-popup" aria-hidden="true">
       <section class="story-image-window" role="dialog" aria-modal="true" aria-label="story image packet">
         <div class="story-image-head"><span>IMAGE PACKET</span><strong>VISUAL DATA</strong></div>
+        <button class="story-comms-skip story-image-skip" type="button" data-story-skip hidden aria-label="会話をスキップ">
+          <span>SKIP</span><small>会話を省略</small>
+        </button>
         <div class="story-image-frame"><img id="story-image-popup-img" src="" alt="" loading="eager" decoding="async"></div>
         <p id="story-image-popup-caption"></p>
         <button class="story-link-button story-image-close" type="button" data-story-image-close><span>NEXT</span><i></i></button>
@@ -596,7 +606,7 @@
 
   <div id="toast-container" aria-live="polite"></div>
   <script src="labor-blueprint.js?v=20260722t9"></script>
-<script src="game.js?v=20260722u10"></script>
+<script src="game.js?v=20260723s1"></script>
   <script src="radar.js?v=20260720u2"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>

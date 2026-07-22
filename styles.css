@@ -880,6 +880,156 @@ body.ui-scale-large .screen {
   font-weight: 400;
 }
 
+.facility-camera-button {
+  position: relative;
+  z-index: 2;
+  display: inline-grid;
+  grid-template-columns: 27px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 142px;
+  min-height: 36px;
+  margin-left: auto;
+  margin-right: 122px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid rgba(72, 219, 234, .38);
+  border-radius: 2px;
+  color: var(--cyan);
+  background: rgba(3, 14, 12, .9);
+  box-shadow: inset 0 0 18px rgba(72, 219, 234, .05), 0 8px 18px rgba(0, 0, 0, .28);
+  cursor: pointer;
+  text-align: left;
+  touch-action: manipulation;
+  transition: border-color .18s ease, color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.facility-camera-button:hover,
+.facility-camera-button:focus-visible,
+.facility-camera-button.active {
+  border-color: rgba(114, 255, 184, .76);
+  color: var(--green-bright);
+  background: rgba(8, 31, 23, .96);
+  box-shadow: inset 0 0 20px rgba(114, 255, 184, .09), 0 0 16px rgba(72, 219, 234, .16);
+  outline: 0;
+}
+
+.facility-camera-icon {
+  display: grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border: 1px solid currentColor;
+  color: inherit;
+  font: 800 18px/1 Consolas, monospace;
+  transform: rotate(0deg);
+  transition: transform .58s cubic-bezier(.22, .78, .2, 1);
+}
+
+.facility-camera-button.active .facility-camera-icon {
+  transform: rotate(180deg);
+}
+
+.facility-camera-copy,
+.facility-camera-copy strong,
+.facility-camera-copy small {
+  display: block;
+  min-width: 0;
+}
+
+.facility-camera-copy strong {
+  color: var(--text);
+  font: 800 11px/1.25 "Noto Sans JP", sans-serif;
+  letter-spacing: 0;
+}
+
+.facility-camera-copy small {
+  margin-top: 2px;
+  overflow: hidden;
+  font: 700 7px/1.2 Consolas, monospace;
+  letter-spacing: .04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.facility-camera-transition {
+  position: absolute;
+  inset: 44px 0 20px;
+  z-index: 33;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--green-bright);
+  background: rgba(3, 18, 13, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.facility-camera-transition::before,
+.facility-camera-transition::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 34%;
+  height: 1px;
+  background: currentColor;
+  box-shadow: 0 0 12px rgba(114, 255, 184, .72);
+  opacity: .72;
+}
+
+.facility-camera-transition::before {
+  right: calc(50% + 86px);
+}
+
+.facility-camera-transition::after {
+  left: calc(50% + 86px);
+}
+
+.facility-camera-transition strong {
+  position: relative;
+  z-index: 2;
+  min-width: 150px;
+  padding: 7px 11px;
+  border: 1px solid rgba(114, 255, 184, .54);
+  color: var(--green-bright);
+  background: rgba(2, 14, 10, .94);
+  box-shadow: 0 0 24px rgba(72, 219, 234, .18);
+  font: 800 9px/1 Consolas, monospace;
+  letter-spacing: .12em;
+  text-align: center;
+}
+
+.facility-camera-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -22%;
+  width: 18%;
+  border-right: 1px solid rgba(114, 255, 184, .92);
+  background: linear-gradient(90deg, transparent, rgba(72, 219, 234, .16));
+  box-shadow: 12px 0 36px rgba(72, 219, 234, .14);
+  transform: skewX(-9deg);
+}
+
+.facility-grid-shell.camera-turning .facility-camera-transition {
+  animation: facility-camera-overlay .7s ease both;
+}
+
+.facility-grid-shell.camera-turning .facility-camera-scan {
+  animation: facility-camera-scan .62s cubic-bezier(.2, .72, .2, 1) both;
+}
+
+@keyframes facility-camera-overlay {
+  0%, 100% { opacity: 0; background-color: rgba(3, 18, 13, 0); }
+  16% { opacity: 1; background-color: rgba(3, 18, 13, .18); }
+  70% { opacity: .8; background-color: rgba(3, 18, 13, .08); }
+}
+
+@keyframes facility-camera-scan {
+  from { left: -22%; opacity: 0; }
+  14% { opacity: 1; }
+  to { left: 108%; opacity: 0; }
+}
+
 .facility-clean-tools {
   position: absolute;
   z-index: 34;
@@ -1285,6 +1435,18 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
   transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
 }
 
+.facility-grid-shell.camera-turning .facility-cell {
+  transition: left .58s cubic-bezier(.22, .78, .2, 1), top .58s cubic-bezier(.22, .78, .2, 1), background .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+.facility-grid-shell.camera-turning .facility-item {
+  transition: left .58s cubic-bezier(.22, .78, .2, 1), top .58s cubic-bezier(.22, .78, .2, 1), transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+
+.facility-grid-shell.camera-turning .clean-marker {
+  transition: left .58s cubic-bezier(.22, .78, .2, 1), top .58s cubic-bezier(.22, .78, .2, 1);
+}
+
 .facility-item::before {
   content: "";
   position: absolute;
@@ -1299,6 +1461,21 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
   transform: translateY(8px);
   transform-origin: center;
   pointer-events: none;
+}
+
+.facility-facing-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+  transform: scaleX(1);
+  transform-origin: center;
+  transition: transform .58s cubic-bezier(.22, .78, .2, 1);
+}
+
+.facility-grid.camera-reverse .facility-facing-layer {
+  transform: scaleX(-1);
 }
 
 .equipment-sprite {
@@ -8015,6 +8192,53 @@ html.apple-touch-device .start-records {
   display: none;
 }
 
+.story-comms-skip {
+  position: absolute;
+  top: 22px;
+  right: 68px;
+  z-index: 12;
+  min-width: 88px;
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid rgba(72, 219, 234, .58);
+  color: var(--cyan);
+  background: rgba(2, 20, 18, .86);
+  box-shadow: inset 0 0 16px rgba(72, 219, 234, .05);
+  font: 900 10px Consolas, "Noto Sans JP", monospace;
+  letter-spacing: .12em;
+  cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+  transition: color .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
+}
+
+.story-comms-skip small {
+  color: rgba(214, 232, 222, .62);
+  font: 700 9px "Segoe UI", "Noto Sans JP", sans-serif;
+  letter-spacing: 0;
+}
+
+.story-comms-skip:hover,
+.story-comms-skip:focus-visible {
+  color: #06110e;
+  border-color: var(--cyan);
+  background: var(--cyan);
+  box-shadow: 0 0 22px rgba(72, 219, 234, .24);
+  outline: none;
+}
+
+.story-comms-skip:hover small,
+.story-comms-skip:focus-visible small {
+  color: rgba(6, 17, 14, .72);
+}
+
+.story-comms-skip[hidden] {
+  display: none;
+}
+
 .story-comms-alert {
   position: absolute;
   top: 28px;
@@ -8820,6 +9044,7 @@ html.apple-touch-device .start-records {
 }
 
 .story-image-window {
+  position: relative;
   width: min(820px, 82vw);
   max-height: min(78vh, 760px);
   display: grid;
@@ -8833,6 +9058,16 @@ html.apple-touch-device .start-records {
   box-shadow: 0 0 70px rgba(72,219,234,.18), inset 0 0 34px rgba(113,255,184,.08);
   clip-path: polygon(0 5%, 5% 0, 95% 0, 100% 5%, 100% 92%, 96% 100%, 4% 100%, 0 92%);
   animation: storyWindowIn .22s ease-out both;
+}
+
+.story-image-skip {
+  top: 17px;
+  right: 20px;
+  z-index: 2;
+}
+
+.story-image-head strong {
+  margin-right: 104px;
 }
 
 .story-image-head {
@@ -12606,6 +12841,53 @@ body.robot-gacha-active {
 .settings-empty {
   color: var(--muted);
   font: 800 11px Consolas, monospace;
+}
+
+@media (max-width: 680px) {
+  .facility-camera-button {
+    min-width: 126px;
+    margin-right: 108px;
+    padding-right: 7px;
+  }
+
+  .facility-camera-copy strong {
+    font-size: 10px;
+  }
+
+  .facility-camera-transition::before {
+    right: calc(50% + 76px);
+  }
+
+  .facility-camera-transition::after {
+    left: calc(50% + 76px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .facility-camera-icon,
+  .facility-facing-layer,
+  .facility-grid-shell.camera-turning .facility-cell,
+  .facility-grid-shell.camera-turning .facility-item,
+  .facility-grid-shell.camera-turning .clean-marker {
+    transition: none !important;
+  }
+
+  .facility-grid-shell.camera-turning .facility-camera-transition,
+  .facility-grid-shell.camera-turning .facility-camera-scan {
+    animation: none !important;
+  }
+}
+
+html.low-spec-mode .facility-camera-transition {
+  display: none !important;
+}
+
+html.low-spec-mode .facility-camera-icon,
+html.low-spec-mode .facility-facing-layer,
+html.low-spec-mode .facility-grid-shell.camera-turning .facility-cell,
+html.low-spec-mode .facility-grid-shell.camera-turning .facility-item,
+html.low-spec-mode .facility-grid-shell.camera-turning .clean-marker {
+  transition: none !important;
 }
 
 html.low-spec-mode body {

@@ -210,6 +210,8 @@ let equipmentMenuTimer = null;
 let cleanToolDrag = null;
 const facilityPointers = new Map();
 let facilityView = { x: 0, y: 0, zoom: FACILITY_INITIAL_ZOOM };
+let facilityCameraTransitionTimer = null;
+let facilityCameraViewSide = "front";
 const laborBlueprintPointers = new Map();
 let laborBlueprintView = { x: 34, y: 34, zoom: 1 };
 let laborBlueprintDrag = null;
@@ -3902,12 +3904,17 @@ function queueSupportRobotTalkRule(rule, occurrenceKey, context = {}, preferredR
 function queueSupportRobotTalkFlag(flag, context = {}, preferredRobotId = "") {
   if (!state || state.debugMode || state.ended) return false;
   const talk = ensureSupportRobotTalkState();
+  const explicitOccurrenceKey = String(context.talkOccurrenceKey || "").trim();
   let changed = false;
   SUPPORT_ROBOT_TALK_EVENTS
     .filter((rule) => rule.triggerType === "flag" && rule.triggerKey === flag)
     .forEach((rule) => {
       talk.flagCounts[rule.id] = Math.max(0, Number(talk.flagCounts[rule.id]) || 0) + 1;
-      const occurrenceKey = rule.once ? rule.id : rule.id + ":flag:" + talk.flagCounts[rule.id];
+      const occurrenceKey = rule.once
+        ? rule.id
+        : explicitOccurrenceKey
+          ? rule.id + ":" + explicitOccurrenceKey
+          : rule.id + ":flag:" + talk.flagCounts[rule.id];
       if (queueSupportRobotTalkRule(rule, occurrenceKey, { ...context, talkFlag: flag }, preferredRobotId)) changed = true;
     });
   if (changed) saveGame();
@@ -4010,6 +4017,9 @@ function startSupportRobotTalk(robotId) {
   talk.pending = talk.pending.filter((entry) => entry.key !== candidate.key);
   talk.completed[candidate.key] = Date.now();
   if (rule.once) talk.completed[rule.id] = Date.now();
+  if (rule.triggerKey === "additional_support_robot_placed") {
+    record.robot.supportWorkforceSelectionHintPending = false;
+  }
   requestFarmRender(record.base);
   saveGame();
   if (farmScreenIsActive() && record.base.id === currentBase().id) renderFarm();
@@ -5389,10 +5399,37 @@ function footprint(item) {
   return { width: definition.width, height: definition.height };
 }
 
-function equipmentVisualDepth(item, kind) {
+function facilityCameraSide() {
+  return facilityCameraViewSide === "reverse" ? "reverse" : "front";
+}
+
+function isFacilityCameraReversed() {
+  return facilityCameraSide() === "reverse";
+}
+
+function facilityCameraCell(x, y, base = currentBase()) {
+  if (!isFacilityCameraReversed()) return { x, y };
+  return {
+    x: base.cols - 1 - x,
+    y: base.rows - 1 - y
+  };
+}
+
+function facilityCameraItemPlacement(item, kind, base = currentBase()) {
   const size = footprint({ ...item, kind });
-  const anchorX = item.x + (size.width - 1) / 2;
-  const anchorY = item.y + size.height - 1;
+  if (!isFacilityCameraReversed()) return { x: item.x, y: item.y, size };
+  return {
+    x: base.cols - item.x - size.width,
+    y: base.rows - item.y - size.height,
+    size
+  };
+}
+
+function equipmentVisualDepth(item, kind, base = currentBase()) {
+  const placement = facilityCameraItemPlacement(item, kind, base);
+  const { size } = placement;
+  const anchorX = placement.x + (size.width - 1) / 2;
+  const anchorY = placement.y + size.height - 1;
   const footprintBias = Math.max(0, size.width - 1) * 0.35;
   return Math.round((anchorX + anchorY) * 100 + anchorY * 10 - footprintBias);
 }
@@ -7642,6 +7679,16 @@ function renderStoryComms() {
   }
   const closeButton = document.getElementById("story-comms-close");
   if (closeButton) closeButton.hidden = Boolean(event.blocking);
+  const canSkip = page < pages.length - 1;
+  const skipLabel = event.choices.length > 1
+    ? "選択肢まで会話をスキップ"
+    : "この会話を最後までスキップ";
+  document.querySelectorAll("[data-story-skip]").forEach((button) => {
+    const belongsToImagePopup = button.classList.contains("story-image-skip");
+    button.hidden = !canSkip || (imageLine ? !belongsToImagePopup : belongsToImagePopup);
+    button.setAttribute("aria-label", skipLabel);
+    button.title = skipLabel;
+  });
   const kickerElement = document.getElementById("story-kicker");
   const titleElement = document.getElementById("story-comms-title");
   const storyKicker = formatCommsText(event.kicker || "", activeStory.context).trim();
@@ -7763,6 +7810,24 @@ function nextStoryPage() {
   persistStoryState();
   renderStoryComms();
   playSound("comms_page", 0.12);
+}
+
+function skipStoryComms() {
+  if (!activeStory) return;
+  const { event } = activeStory;
+  const pages = event.pages.length ? event.pages : [{ speakerId: "narrator", text: "" }];
+  const lastPage = pages.length - 1;
+  if (activeStory.page >= lastPage) return;
+
+  if (event.choices.length > 1) {
+    activeStory.page = lastPage;
+    persistStoryState();
+    renderStoryComms();
+    playSound("comms_page", 0.12);
+    return;
+  }
+
+  closeStoryComms(event.choices[0]?.id || "close");
 }
 
 function closeStoryComms(choiceId = "close") {
@@ -8293,7 +8358,10 @@ function isOpaqueImagePoint(image, clientX, clientY) {
   }
   const canvas = canvasForSprite(image);
   if (!canvas) return true;
-  const pixelX = Math.min(canvas.width - 1, Math.max(0, Math.floor(((clientX - contentRect.left) / contentRect.width) * canvas.width)));
+  const normalizedPixelX = Math.min(canvas.width - 1, Math.max(0, Math.floor(((clientX - contentRect.left) / contentRect.width) * canvas.width)));
+  const facingLayer = image.closest(".facility-facing-layer");
+  const mirrored = Boolean(facingLayer?.closest(".facility-grid.camera-reverse"));
+  const pixelX = mirrored ? canvas.width - 1 - normalizedPixelX : normalizedPixelX;
   const pixelY = Math.min(canvas.height - 1, Math.max(0, Math.floor(((clientY - contentRect.top) / contentRect.height) * canvas.height)));
   try {
     return canvas.context.getImageData(pixelX, pixelY, 1, 1).data[3] > SPRITE_ALPHA_THRESHOLD;
@@ -8734,7 +8802,16 @@ function placeItemAt(kind, id, x, y, targetElement = null, options = {}) {
   record = moveEquipmentToBase(record, currentBase());
   const item = record.item;
   Object.assign(item, { x, y, placed: true });
-  if (kind === "device" && item.type === "support_robot") applySupportRobotPlacementEffects(item);
+  if (kind === "device" && item.type === "support_robot") {
+    applySupportRobotPlacementEffects(item);
+    if (item.supportWorkforceSelectionHintPending) {
+      queueSupportRobotTalkFlag("additional_support_robot_placed", {
+        robotId: item.id,
+        baseId: currentBase().id,
+        talkOccurrenceKey: "robot:" + item.id
+      }, item.id);
+    }
+  }
   trackPlacementAnalytics(kind, item);
   removeDuplicateEquipmentEntries(kind, item.id, record.base.id);
   placementSelection = null;
@@ -8854,9 +8931,10 @@ function gridToIso(x, y, base = currentBase()) {
 }
 
 function equipmentIsoPosition(item, kind, base = currentBase()) {
-  const size = footprint({ ...item, kind });
+  const placement = facilityCameraItemPlacement(item, kind, base);
+  const { size } = placement;
   return {
-    ...gridToIso(item.x + (size.width - 1) / 2, item.y + (size.height - 1) / 2, base),
+    ...gridToIso(placement.x + (size.width - 1) / 2, placement.y + (size.height - 1) / 2, base),
     size
   };
 }
@@ -8881,6 +8959,24 @@ function resetFacilityView() {
 function zoomFacility(delta) {
   facilityView.zoom = clampFacilityZoom(facilityView.zoom + delta);
   applyFacilityView();
+}
+
+function toggleFacilityCamera() {
+  const shell = document.querySelector(".facility-grid-shell");
+  if (!shell || facilityPinch || facilityPan || pointerDrag || cleanToolDrag) return;
+  clearDragState();
+  clearTimeout(facilityCameraTransitionTimer);
+  shell.classList.remove("camera-turning");
+  void shell.offsetWidth;
+  shell.classList.add("camera-turning");
+  facilityCameraViewSide = isFacilityCameraReversed() ? "front" : "reverse";
+  playSound("tab_switch", 0.16);
+  hapticFeedback([7, 24, 7]);
+  window.requestAnimationFrame(() => renderFarm());
+  facilityCameraTransitionTimer = window.setTimeout(() => {
+    document.querySelector(".facility-grid-shell")?.classList.remove("camera-turning");
+    facilityCameraTransitionTimer = null;
+  }, 720);
 }
 
 function pointerPairMetrics() {
@@ -9687,6 +9783,7 @@ function commitSupportRobotGachaContract() {
   document.getElementById("robot-gacha-confirm")?.classList.add("hidden");
   state.money -= offer.price;
   addRadarSuspicion(radarPurchaseSuspicion(offer.price));
+  robot.supportWorkforceSelectionHintPending = true;
   currentFloorDevices().push(robot);
   supportRobotRoster();
 
@@ -12815,6 +12912,7 @@ function unlockDebugState() {
 
 function startDebugGame() {
   clearSessionInteractionState();
+  facilityCameraViewSide = "front";
   state = createInitialState("free");
   unlockDebugState();
   updateMarketForDay();
@@ -12963,6 +13061,7 @@ function bindAppleTouchStartControls() {
 
 function startNewGame(mode = "day45") {
   clearSessionInteractionState();
+  facilityCameraViewSide = "front";
   state = createInitialState(mode);
   updateMarketForDay();
   clearStoryForTrigger("game_start");
@@ -13558,9 +13657,15 @@ function renderFarm() {
     <div class="base-switcher">${baseTabs}</div>`;
 
   const dirtyCount = [...shelves, ...floorDevices].filter(needsCleaning).length;
-  document.getElementById("facility-grid-toolbar").innerHTML = placementItem
+  const cameraReverse = isFacilityCameraReversed();
+  const cameraControl = `<button type="button" class="facility-camera-button ${cameraReverse ? "active" : ""}" data-view-camera aria-pressed="${cameraReverse ? "true" : "false"}" title="${cameraReverse ? "正面側の視点に戻す" : "栽培区画を反対側から見る"}">
+    <span class="facility-camera-icon" aria-hidden="true">↻</span>
+    <span class="facility-camera-copy"><strong>視点切替</strong><small>${cameraReverse ? "正面へ // VIEW A" : "反対側へ // VIEW B"}</small></span>
+  </button>`;
+  const placementStatus = placementItem
     ? `<span class="placement-active">配置中 // ${placementItem.kind === "unit" ? GROW_UNITS[placementItem.type].name : FLOOR_DEVICES[placementItem.type].name}</span><div class="placement-tools"><small>空いているマスに置いてください</small><button type="button" data-cancel-placement>キャンセル</button></div>`
     : `<span class="facility-toolbar-status">${dirtyCount ? `<b class="clean-alert">清掃 ${dirtyCount}</b>` : ""}</span>`;
+  document.getElementById("facility-grid-toolbar").innerHTML = `${placementStatus}${cameraControl}`;
 
   const coverageDevices = floorDevices.map((device) => {
     const definition = FLOOR_DEVICES[device.type];
@@ -13597,7 +13702,7 @@ function renderFarm() {
     return `<button class="facility-item grow-item type-${unit.type} ${usesSlotWidget ? "unit-widget" : ""} ${running ? "unit-running" : "unit-idle"} ${plantStageClass(unit)} ${ready ? "harvest-glow" : ""} ${sRankReady ? "s-rank-ready" : ""} ${needsCleaning(unit) ? "needs-cleaning" : ""} ${selectedUnitId === unit.id ? "selected" : ""}" aria-label="${definition.name} ${occupied}/${definition.slots}株 ${running ? "稼働中" : "停止中"}"
       style="grid-column:${unit.x + 1}/span ${definition.width};grid-row:${unit.y + 1}/span ${definition.height};z-index:${20 + unit.y}"
       data-select-unit="${unit.id}" data-drag-kind="unit" data-drag-id="${unit.id}" data-sprite-crop="${spriteCrop}">
-      <img class="equipment-sprite growth-stage-sprite ${usesSlotWidget ? "widget-body-sprite" : ""}" src="${sprite}" alt="" draggable="false">${plantSlots}<span class="unit-aura"></span>${sRankReady ? `<span class="unit-rank-badge">S</span>` : ""}<span class="item-label"><strong>${definition.name}</strong><small>${occupied}/${definition.slots} plants</small></span>
+      <span class="facility-facing-layer"><img class="equipment-sprite growth-stage-sprite ${usesSlotWidget ? "widget-body-sprite" : ""}" src="${sprite}" alt="" draggable="false">${plantSlots}</span><span class="unit-aura"></span>${sRankReady ? `<span class="unit-rank-badge">S</span>` : ""}<span class="item-label"><strong>${definition.name}</strong><small>${occupied}/${definition.slots} plants</small></span>
     </button>`;
   }).join("");
 
@@ -13630,7 +13735,7 @@ function renderFarm() {
       : "";
     return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${productionVisual ? "resource-production-active" : ""} ${talkEntry ? "has-robot-talk" : ""}"
       style="grid-column:${device.x + 1};grid-row:${device.y + 1};z-index:${20 + device.y}" data-select-device="${device.id}" data-drag-kind="device" data-drag-id="${device.id}">
-      <img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"><span class="device-field"></span>${productionEffect}${talkMarker}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
+      <span class="facility-facing-layer"><img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"></span><span class="device-field"></span>${productionEffect}${talkMarker}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
     </button>`;
   }).join("");
 
@@ -13641,7 +13746,13 @@ function renderFarm() {
   const grid = document.getElementById("facility-grid");
   const gridShell = document.querySelector(".facility-grid-shell");
   const metrics = isoGridMetrics(base);
+  const cameraTurning = gridShell.classList.contains("camera-turning");
   gridShell.className = `facility-grid-shell ${base.rows <= 3 ? "compact-grid" : ""} ${placementItem ? "equipment-placement-mode" : ""} ${facilityMoodClasses(base)}`.trim();
+  gridShell.classList.toggle("camera-reverse", cameraReverse);
+  if (cameraTurning) gridShell.classList.add("camera-turning");
+  grid.classList.toggle("camera-reverse", cameraReverse);
+  const cameraTransitionLabel = gridShell.querySelector("[data-camera-transition-label]");
+  if (cameraTransitionLabel) cameraTransitionLabel.textContent = cameraReverse ? "VIEW B // REVERSE" : "VIEW A // FRONT";
   grid.style.setProperty("--iso-width", `${metrics.width}px`);
   grid.style.setProperty("--iso-height", `${metrics.height}px`);
   grid.style.setProperty("--tile-w", `${ISO_TILE_WIDTH}px`);
@@ -13650,15 +13761,21 @@ function renderFarm() {
   grid.style.setProperty("--grid-rows", base.rows);
   applyFacilityView();
   const gridMarkup = cellMarkup + placedUnits + placedDevices + cleanMarkers;
-  if (grid.dataset.renderedBaseId !== base.id || farmGridMarkupCache.get(base.id) !== gridMarkup) {
+  const markupChanged = grid.dataset.renderedBaseId !== base.id || farmGridMarkupCache.get(base.id) !== gridMarkup;
+  if (markupChanged) {
     grid.innerHTML = gridMarkup;
     grid.dataset.renderedBaseId = base.id;
     farmGridMarkupCache.set(base.id, gridMarkup);
+  }
 
+  const cameraSide = facilityCameraSide();
+  const cameraChanged = grid.dataset.cameraSide !== cameraSide;
+  if (markupChanged || cameraChanged) {
     grid.querySelectorAll(".facility-cell").forEach((cell) => {
       const x = Number(cell.dataset.gridX);
       const y = Number(cell.dataset.gridY);
-      const pos = gridToIso(x, y, base);
+      const displayCell = facilityCameraCell(x, y, base);
+      const pos = gridToIso(displayCell.x, displayCell.y, base);
       cell.style.left = `${pos.x}px`;
       cell.style.top = `${pos.y}px`;
     });
@@ -13671,7 +13788,7 @@ function renderFarm() {
       element.style.top = `${pos.y}px`;
       element.style.setProperty("--footprint-w", definition.width);
       element.style.setProperty("--footprint-h", definition.height);
-      element.style.zIndex = String(100 + equipmentVisualDepth(unit, "unit"));
+      element.style.zIndex = String(100 + equipmentVisualDepth(unit, "unit", base));
     });
     grid.querySelectorAll("[data-select-device]").forEach((element) => {
       const device = floorDevices.find((entry) => entry.id === element.dataset.selectDevice);
@@ -13681,7 +13798,7 @@ function renderFarm() {
       element.style.top = `${pos.y}px`;
       element.style.setProperty("--footprint-w", pos.size.width);
       element.style.setProperty("--footprint-h", pos.size.height);
-      element.style.zIndex = String(100 + equipmentVisualDepth(device, "device"));
+      element.style.zIndex = String(100 + equipmentVisualDepth(device, "device", base));
     });
     grid.querySelectorAll("[data-clean-marker-kind][data-clean-marker-id]").forEach((element) => {
       const kind = element.dataset.cleanMarkerKind;
@@ -13693,7 +13810,7 @@ function renderFarm() {
       element.style.top = `${pos.y}px`;
     });
   }
-
+  grid.dataset.cameraSide = cameraSide;
   const detailPanel = document.getElementById("selected-unit-panel");
   if (detailPanel) detailPanel.innerHTML = "";
 const unplaced = sharedStockItems();
@@ -14494,6 +14611,13 @@ function bindEvents() {
       return;
     }
 
+    const storySkip = event.target.closest("[data-story-skip]");
+    if (storySkip) {
+      event.preventDefault();
+      skipStoryComms();
+      return;
+    }
+
     const storyChoice = event.target.closest("[data-story-choice]");
     if (storyChoice) {
       event.preventDefault();
@@ -14651,6 +14775,11 @@ function bindEvents() {
     const envButton = event.target.closest("[data-env][data-env-delta]");
     if (envButton) {
       adjustEnvironment(envButton.dataset.env, Number(envButton.dataset.envDelta));
+      return;
+    }
+
+    if (event.target.closest("[data-view-camera]")) {
+      toggleFacilityCamera();
       return;
     }
 
