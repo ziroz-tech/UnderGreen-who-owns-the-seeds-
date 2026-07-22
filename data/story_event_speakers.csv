@@ -43,3 +43,9 @@ story_labor_tutorial_completed,support_robot,left,0,サポートロボット,労
 story_labor_tutorial_completed,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
 story_allmarket_unlocked,mara,left,0,マーラ,種ブローカー,assets/characters/seed-broker.webp
 story_allmarket_unlocked,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
+story_schedule_first_open,informant,left,0,情報屋,地下情報ブローカー,
+story_schedule_first_open,support_robot,left,1,サポートロボット,農場支援AI,assets/characters/supportRobot-iso-leftdown.webp
+story_schedule_first_open,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
+story_schedule_first_open,narrator,system,0,？？,,
+story_radio_first_open,mystery_girl,left,0,謎の少女,？？？,
+story_radio_first_open,operator,right,0,オペレーター,未登録栽培者,assets/characters/protagonist.webp
