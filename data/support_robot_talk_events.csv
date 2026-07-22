@@ -1,0 +1,5 @@
+id,triggerType,triggerKey,storyTrigger,robotTarget,markerLabel,once,priority,startDay,intervalDays,resource,threshold,missingDevice,requirements,enabled
+initial_encouragement,flag,initial_support_robot_placed,support_robot_initial_encouragement,context,応援モードの報告,TRUE,100,1,1,,,,device:support_robot>=1,TRUE
+water_production_prompt,resource_low,,support_robot_water_production_prompt,initial,水の生産設備について,TRUE,90,1,1,water,10,filter,device:support_robot>=1,TRUE
+nutrient_production_prompt,resource_low,,support_robot_nutrient_production_prompt,initial,養液の生産設備について,TRUE,90,1,1,nutrient,10,tank,device:support_robot>=1,TRUE
+periodic_farm_report,interval,,support_robot_periodic_farm_report,initial,農園の定時報告,FALSE,40,5,5,,,,device:support_robot>=1,TRUE
