@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260722t6">
+    <link rel="stylesheet" href="styles.css?v=20260722u2">
   <link rel="stylesheet" href="radar.css?v=20260720u2">
 </head>
 <body>
@@ -446,7 +446,7 @@
     <div class="story-image-popup hidden" id="story-image-popup" aria-hidden="true">
       <section class="story-image-window" role="dialog" aria-modal="true" aria-label="story image packet">
         <div class="story-image-head"><span>IMAGE PACKET</span><strong>VISUAL DATA</strong></div>
-        <div class="story-image-frame"><img id="story-image-popup-img" src="" alt="" loading="lazy" decoding="async"></div>
+        <div class="story-image-frame"><img id="story-image-popup-img" src="" alt="" loading="eager" decoding="async"></div>
         <p id="story-image-popup-caption"></p>
         <button class="story-link-button story-image-close" type="button" data-story-image-close><span>NEXT</span><i></i></button>
       </section>
@@ -469,7 +469,7 @@
   </section>
   <aside class="comms-banner hidden" id="comms-banner" aria-live="polite">
     <div class="comms-speaker">
-      <img id="comms-icon" src="assets/characters/seed-broker.webp" alt="" loading="lazy" decoding="async">
+      <img id="comms-icon" src="assets/characters/seed-broker.webp" alt="" loading="eager" decoding="async">
       <div>
         <small id="comms-kicker">ENCRYPTED COMMS</small>
         <strong id="comms-speaker-name">---</strong>
@@ -557,7 +557,7 @@
         <h2 id="robot-gacha-boot-name">SUPPORT ROBOT</h2>
         <strong id="robot-gacha-boot-rarity">STANDARD</strong>
         <p id="robot-gacha-boot-line"></p>
-        <button class="primary-button" id="robot-gacha-done" type="button">配置へ進む</button>
+        <button class="primary-button" id="robot-gacha-done" type="button">調達端末へ戻る</button>
       </div>
     </div>
   </section>
@@ -596,7 +596,7 @@
 
   <div id="toast-container" aria-live="polite"></div>
   <script src="labor-blueprint.js?v=20260722t9"></script>
-<script src="game.js?v=20260722t7"></script>
+<script src="game.js?v=20260722u2"></script>
   <script src="radar.js?v=20260720u2"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>

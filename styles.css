@@ -529,7 +529,8 @@ body.ui-scale-large .screen {
 .tab {
   position: relative;
   min-width: 190px;
-  padding: 15px 22px;
+  min-height: 61px;
+  padding: 13px 22px 21px;
   border: 0;
   border-right: 1px solid var(--line);
   color: var(--muted);
@@ -550,21 +551,62 @@ body.ui-scale-large .screen {
   background: linear-gradient(180deg, rgba(35, 91, 67, 0.22), rgba(20, 45, 35, 0.1));
 }
 
-.tab.locked,
-.tab:disabled {
+.tab.locked:not(.feature-locked),
+.tab:disabled:not(.feature-locked) {
   opacity: .42;
   cursor: not-allowed;
   filter: grayscale(.7);
 }
 
-.tab.locked::before {
-  content: "LOCKED";
+.tab.feature-locked {
+  opacity: .72;
+  color: rgba(143, 172, 159, .74);
+  border-top: 1px dashed rgba(245, 214, 91, .24);
+  background: linear-gradient(180deg, rgba(245, 214, 91, .045), rgba(5, 15, 11, .14));
+  cursor: help;
+  filter: grayscale(.35);
+  box-shadow: inset 0 -1px rgba(245, 214, 91, .24);
+}
+
+.tab.feature-locked::before {
+  content: "LOCK // 未接続";
   position: absolute;
-  right: 12px;
-  bottom: 5px;
+  top: 5px;
+  right: 9px;
   color: var(--red);
   font: 700 7px Consolas, monospace;
   letter-spacing: .14em;
+  animation: locked-tab-signal 2.4s ease-in-out infinite;
+}
+
+.tab.feature-locked::after {
+  content: attr(data-lock-hint);
+  position: absolute;
+  right: 10px;
+  bottom: 5px;
+  left: 22px;
+  overflow: hidden;
+  color: rgba(245, 214, 91, .72);
+  font: 700 8px/1.2 "Noto Sans JP", sans-serif;
+  letter-spacing: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes locked-tab-signal {
+  0%, 100% { opacity: .52; }
+  50% { opacity: 1; }
+}
+
+html.low-spec-mode .tab.feature-locked::before {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab.feature-locked::before {
+    animation: none;
+  }
 }
 
 .tab.new-tab-alert:not(.locked)::before {
@@ -4505,6 +4547,10 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
   display: none;
 }
 
+.comms-banner.visual-pending {
+  visibility: hidden;
+}
+
 .comms-speaker {
   position: relative;
   display: block;
@@ -7797,6 +7843,12 @@ html.apple-touch-device .start-records {
   display: none;
 }
 
+.story-comms-overlay.visual-pending .story-comms-bg,
+.story-comms-overlay.visual-pending .story-comms-window,
+.story-comms-overlay.visual-pending .story-image-popup {
+  visibility: hidden;
+}
+
 .story-comms-active #app,
 .story-comms-active .action-dock {
   opacity: .34;
@@ -10822,6 +10874,51 @@ html.apple-touch-device .ios-input-diagnostic pre {
   }
 }
 
+body.labor-tutorial-active .tabs .tab:not([data-tab="labor"]),
+body.labor-tutorial-active .action-dock .end-day-button,
+body.labor-tutorial-active #labor-screen .labor-roster-panel,
+body.labor-tutorial-active #labor-screen .blueprint-toolbar-actions,
+body.labor-tutorial-active #labor-screen .blueprint-package-panel,
+body.labor-tutorial-active #labor-screen .blueprint-palette-tabs,
+body.labor-tutorial-active #labor-screen .blueprint-palette-note {
+  opacity: 0.3;
+  pointer-events: none;
+  filter: grayscale(0.72);
+}
+
+body.labor-tutorial-active #labor-screen .blueprint-node-delete,
+body.labor-tutorial-active #labor-screen .blueprint-node-args,
+body.labor-tutorial-active #labor-screen .blueprint-number-stepper {
+  opacity: 0.28;
+  pointer-events: none;
+}
+body.labor-tutorial-active[data-labor-tutorial-phase="configure_condition"] #labor-screen .condition-node .blueprint-node-args,
+body.labor-tutorial-active[data-labor-tutorial-phase="configure_condition"] #labor-screen .condition-node .blueprint-number-stepper {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.labor-tutorial-active #labor-screen .blueprint-palette-entry.tutorial-locked {
+  opacity: 0.28;
+  pointer-events: none;
+  filter: grayscale(0.8);
+}
+
+body.labor-tutorial-active #labor-screen .blueprint-palette-entry.tutorial-target {
+  border: 1px solid rgba(245, 214, 91, 0.62);
+  background: rgba(245, 214, 91, 0.055);
+}
+
+body.labor-tutorial-active #labor-screen .labor-quick-guide {
+  background: linear-gradient(105deg, rgba(245, 214, 91, 0.08), rgba(3, 19, 14, 0.94) 62%);
+  box-shadow: inset 3px 0 0 var(--yellow);
+}
+
+body.labor-tutorial-active #labor-screen .labor-guide-heading > small {
+  color: var(--yellow);
+  font: 800 9px/1.2 Consolas, monospace;
+  letter-spacing: 0.08em;
+}
 @media (prefers-reduced-motion: reduce) {
   .labor-assist-focus {
     animation: none;

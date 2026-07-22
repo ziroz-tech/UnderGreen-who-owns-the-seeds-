@@ -52,7 +52,21 @@ const RESOURCE_CARTRIDGE_ITEMS = Object.freeze({
 const NON_PURCHASABLE_RESOURCE_ITEMS = new Set(["water", "nutrient"]);
 const REALTIME_DAY_MS = 20000;
 const WITHER_DAYS = 1;
-const SAVE_KEY = "undergreen-save-v17";
+const LABOR_TUTORIAL_QA_PARAM = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("labortutorial");
+  } catch (error) {
+    return null;
+  }
+})();
+const LABOR_TUTORIAL_QA_MODE = ["1", "true", "on", "qa"].includes(
+  String(LABOR_TUTORIAL_QA_PARAM || "").trim().toLowerCase()
+);
+const PRIMARY_SAVE_KEY = "undergreen-save-v17";
+// Repeated tutorial checks must never overwrite the player's regular save.
+const SAVE_KEY = LABOR_TUTORIAL_QA_MODE
+  ? `${PRIMARY_SAVE_KEY}-labor-tutorial-qa`
+  : PRIMARY_SAVE_KEY;
 const SAVE_BACKUP_KEY = `${SAVE_KEY}-backup`;
 const LEGACY_SAVE_KEYS = [];
 const DAY45_RECORDS_KEY = "undergreen-day45-records-v1";
@@ -115,7 +129,7 @@ const START_MODE_SEQUENCE = ["day45", "day60", "free"];
 const TIMED_MODE_WARNING_DAYS = [10, 5];
 const PROPERTY_REROLL_FEE = 100;
 const PROCUREMENT_REROLL_FEE = 80;
-const AUTOMATION_CATEGORY_UNLOCK_REVENUE = 1500;
+const AUTOMATION_CATEGORY_UNLOCK_REVENUE = 2000;
 const PRE_RESULT_STORY_ID = "story_pre_result_robot_interview";
 const SHOP_CATEGORIES = {
   seeds: {
@@ -221,6 +235,8 @@ let pendingComms = [];
 let activeStory = null;
 let pendingStories = [];
 let storyTextAnimationFrame = 0;
+let storyVisualRevealToken = 0;
+let commsVisualRevealToken = 0;
 let startScreenOpen = true;
 let pendingConfirmAction = null;
 let pendingDangerAction = null;
@@ -2231,6 +2247,186 @@ window.UndergreenRadar = {
   setSuspicion: setRadarSuspicion
 };
 
+function createDefaultLaborTutorialState() {
+  return {
+    active: false,
+    completed: false,
+    phase: "idle",
+    targetType: "cleaning",
+    targetRobotId: "",
+    targetNodeId: "",
+    branchNodeId: "",
+    conditionNodeId: "",
+    restNodeId: "",
+    completionQueued: false,
+    pausedBefore: false
+  };
+}
+
+function ensureLaborTutorialState() {
+  if (!state) return createDefaultLaborTutorialState();
+  const source = state.laborTutorial && typeof state.laborTutorial === "object"
+    ? state.laborTutorial
+    : {};
+  const validPhases = new Set([
+    "idle",
+    "place_cleaning",
+    "connect_cleaning",
+    "cleaning_review",
+    "disconnect_cleaning",
+    "place_branch",
+    "place_condition",
+    "configure_condition",
+    "place_rest",
+    "connect_event_branch",
+    "connect_condition_branch",
+    "connect_true_rest",
+    "connect_false_cleaning",
+    "advanced_review"
+  ]);
+  const tutorial = {
+    ...createDefaultLaborTutorialState(),
+    ...source,
+    active: Boolean(source.active),
+    completed: Boolean(source.completed),
+    phase: validPhases.has(source.phase) ? source.phase : (source.active ? "place_cleaning" : "idle"),
+    targetType: "cleaning",
+    targetRobotId: typeof source.targetRobotId === "string" ? source.targetRobotId : "",
+    targetNodeId: typeof source.targetNodeId === "string" ? source.targetNodeId : "",
+    branchNodeId: typeof source.branchNodeId === "string" ? source.branchNodeId : "",
+    conditionNodeId: typeof source.conditionNodeId === "string" ? source.conditionNodeId : "",
+    restNodeId: typeof source.restNodeId === "string" ? source.restNodeId : "",
+    completionQueued: Boolean(source.completionQueued),
+    pausedBefore: Boolean(source.pausedBefore)
+  };
+  if (tutorial.completed) tutorial.active = false;
+  if (state.debugMode && tutorial.active) {
+    state.paused = tutorial.pausedBefore;
+    tutorial.active = false;
+    tutorial.phase = "idle";
+    tutorial.completionQueued = false;
+  }
+  state.laborTutorial = tutorial;
+  return tutorial;
+}
+
+function isLaborTutorialActive() {
+  return Boolean(state && !state.debugMode && ensureLaborTutorialState().active);
+}
+
+function laborTutorialTargetRecord() {
+  const tutorial = ensureLaborTutorialState();
+  const roster = supportRobotRoster();
+  const record = roster.find(({ robot }) => robot.id === tutorial.targetRobotId)
+    || roster.find(({ robot }) => robot.isInitialSupportRobot)
+    || roster[0]
+    || null;
+  if (record && tutorial.targetRobotId !== record.robot.id) tutorial.targetRobotId = record.robot.id;
+  return record;
+}
+
+function syncLaborTutorialLock() {
+  const active = isLaborTutorialActive();
+  const tutorial = active ? ensureLaborTutorialState() : null;
+  document.body?.classList.toggle("labor-tutorial-active", active);
+  if (document.body) document.body.dataset.laborTutorialPhase = active ? tutorial.phase : "";
+  if (active && activeTabId() !== "labor") setActiveTabSilently("labor");
+}
+
+function startLaborTutorial() {
+  if (!state || state.debugMode) return false;
+  const current = ensureLaborTutorialState();
+  if (current.completed || current.active) return false;
+  const record = laborTutorialTargetRecord();
+  if (!record) {
+    toast("接続訓練を開始できるサポートロボットがいません。", "warning");
+    return false;
+  }
+  ensureSupportRobotProfile(record.robot);
+  record.robot.supportBlueprint = createDefaultSupportBlueprint();
+  resetSupportBlueprintRuntime(record.robot);
+  selectedLaborRobotId = record.robot.id;
+  state.laborTutorial = {
+    ...createDefaultLaborTutorialState(),
+    active: true,
+    phase: "place_cleaning",
+    targetRobotId: record.robot.id,
+    pausedBefore: Boolean(state.paused)
+  };
+  state.paused = true;
+  ensureOpenedTabs();
+  state.openedTabs.labor = true;
+  setActiveTabSilently("labor");
+  syncLaborTutorialLock();
+  saveGame();
+  render();
+  return true;
+}
+
+function continueAdvancedLaborTutorial() {
+  if (!state || state.debugMode) return false;
+  const tutorial = ensureLaborTutorialState();
+  if (!tutorial.active || tutorial.phase !== "cleaning_review") return false;
+  tutorial.phase = "disconnect_cleaning";
+  tutorial.completionQueued = false;
+  state.paused = true;
+  syncLaborTutorialLock();
+  saveGame();
+  render();
+  return true;
+}
+
+function completeLaborTutorial() {
+  if (!state) return false;
+  const tutorial = ensureLaborTutorialState();
+  const pausedBefore = tutorial.pausedBefore;
+  state.laborTutorial = {
+    ...tutorial,
+    active: false,
+    completed: true,
+    phase: "idle",
+    completionQueued: false
+  };
+  state.paused = pausedBefore;
+  syncLaborTutorialLock();
+  saveGame();
+  render();
+  toast("接続訓練が完了しました。労務管理の全操作を利用できます。", "success");
+  return true;
+}
+
+function onLaborTutorialConnectionComplete({ robotId = "", nodeId = "" } = {}) {
+  if (!isLaborTutorialActive()) return false;
+  const tutorial = ensureLaborTutorialState();
+  if (robotId && robotId !== tutorial.targetRobotId) return false;
+  if (tutorial.targetNodeId && nodeId && nodeId !== tutorial.targetNodeId) return false;
+  const isCleaningReview = tutorial.phase === "cleaning_review";
+  const isAdvancedReview = tutorial.phase === "advanced_review";
+  if (!isCleaningReview && !isAdvancedReview) return false;
+  if (nodeId) tutorial.targetNodeId = nodeId;
+  syncLaborTutorialLock();
+  if (tutorial.completionQueued) return true;
+  tutorial.completionQueued = true;
+  saveGame();
+  const triggerName = isCleaningReview
+    ? "labor_tutorial_cleaning_completed"
+    : "labor_tutorial_completed";
+  const opened = triggerStoryEvent(triggerName, {
+    tabId: "labor",
+    robotId: tutorial.targetRobotId,
+    nodeId: tutorial.targetNodeId
+  });
+  if (!opened) {
+    tutorial.completionQueued = false;
+    if (isCleaningReview) continueAdvancedLaborTutorial();
+    else completeLaborTutorial();
+  }
+  return true;
+}
+
+window.onLaborTutorialConnectionComplete = onLaborTutorialConnectionComplete;
+window.syncLaborTutorialLock = syncLaborTutorialLock;
+
 function createInitialState(mode = "day45") {
   const initialProperty = createInitialSafeRoom();
   initialProperty.ownedAt = Date.now();
@@ -2259,6 +2455,7 @@ function createInitialState(mode = "day45") {
     resourceCartridges: { water: 0, nutrient: 0 },
     supportOS: { harvest: false, planting: false, cleaning: false },
     automation: createDefaultSupportAutomation(),
+    laborTutorial: createDefaultLaborTutorialState(),
     supportPersonalityTriggerState: { lastProcessed: {} },
     radar: createDefaultRadarState(),
     resourceRemainders: { water: 0, nutrient: 0 },
@@ -3352,9 +3549,24 @@ function repairPlayableState() {
   }
 }
 
+function prepareLaborTutorialQaState() {
+  state.debugMode = false;
+  state.ended = false;
+  state.resultShown = false;
+  state.paused = false;
+  state.automationTabUnlocked = true;
+  state.supportOS = { harvest: false, planting: false, cleaning: false };
+  state.openedTabs = { farm: true };
+  grantFloorDevice("support_robot", { supportBlueprintPreset: "empty" });
+  state.log = "LABOR TUTORIAL QA // 通常セーブから分離された接続訓練です。";
+}
+
 function loadGame() {
-  const loaded = readSavedGame();
+  const loaded = LABOR_TUTORIAL_QA_MODE
+    ? { state: createInitialState("day45"), sourceKey: null }
+    : readSavedGame();
   state = loaded.state || createInitialState();
+  if (LABOR_TUTORIAL_QA_MODE) prepareLaborTutorialQaState();
   state.commsSeen ||= {};
   state.commsChoices ||= {};
   state.commsOpen ||= [];
@@ -3368,6 +3580,7 @@ function loadGame() {
   state.unlocks ||= {};
   state.mode = validPlayMode(state.mode || "day45", "day45");
   state.debugMode = Boolean(state.debugMode);
+  ensureLaborTutorialState();
   state.day30Recorded = Boolean(state.day30Recorded);
   state.day30RecordId ||= null;
   state.supportRobotGranted = Boolean(state.supportRobotGranted);
@@ -6306,6 +6519,32 @@ function isTabAvailable(tabId) {
   return true;
 }
 
+function lockedTabCopy(tabId) {
+  const copies = {
+    market: {
+      hint: "初回収穫で接続",
+      detail: "闇市場は、作物を初めて収穫すると接続されます。"
+    },
+    shop: {
+      hint: "1株売却で接続",
+      detail: unlockHint("tab", "shop", "作物を1株以上売ると調達端末が開きます。")
+    },
+    labor: {
+      hint: "累計売上 " + formatNumber(AUTOMATION_CATEGORY_UNLOCK_REVENUE) + "C",
+      detail: "労務管理は、累計売上 " + formatNumber(AUTOMATION_CATEGORY_UNLOCK_REVENUE) + "Cで接続されます。"
+    },
+    schedule: {
+      hint: "調達端末と同時接続",
+      detail: "予定表は、調達端末の解放と同時に接続されます。"
+    },
+    broker: {
+      hint: "初期拠点を5マス占有",
+      detail: unlockHint("broker", "broker", "初期拠点の5マスを設備で占有すると接続されます。")
+    }
+  };
+  return copies[tabId] || { hint: "進行で接続", detail: "ゲームを進めると接続されます。" };
+}
+
 function markTabOpened(tabId) {
   ensureOpenedTabs();
   if (!GAME_TABS.includes(tabId) || state.openedTabs[tabId]) return;
@@ -6320,18 +6559,37 @@ function updateTabIndicators() {
   document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
     const tabId = tab.dataset.tab;
     const available = isTabAvailable(tabId);
+    const tutorialLocked = isLaborTutorialActive() && tabId !== "labor";
+    const locked = !available || tutorialLocked;
     const active = tab.classList.contains("active");
-    tab.classList.toggle("locked", !available);
-    tab.toggleAttribute("disabled", !available);
-    tab.classList.toggle("new-tab-alert", available && !active && !state.openedTabs[tabId]);
+    tab.classList.toggle("locked", locked);
+    tab.classList.toggle("feature-locked", !available);
+    tab.removeAttribute("disabled");
+    tab.setAttribute("aria-disabled", String(locked));
+    if (!available) {
+      const copy = lockedTabCopy(tabId);
+      tab.dataset.lockHint = copy.hint;
+      tab.title = copy.detail;
+      tab.setAttribute("aria-label", tab.textContent.trim() + "。未接続。" + copy.detail);
+    } else {
+      delete tab.dataset.lockHint;
+      tab.removeAttribute("title");
+      tab.removeAttribute("aria-label");
+    }
+    tab.classList.toggle("new-tab-alert", available && !tutorialLocked && !active && !state.openedTabs[tabId]);
     if (tabId === "farm") tab.classList.toggle("needs-cleaning-tab", cleaningNeeded);
   });
 }
 
 function switchTab(tabId) {
   const previousTab = document.querySelector(".screen.active")?.id?.replace("-screen", "");
+  if (isLaborTutorialActive() && tabId !== "labor") {
+    toast("接続訓練を完了するまで、ほかの操作はロックされています。", "warning");
+    rejectFeedback();
+    return;
+  }
   if (!isTabAvailable(tabId)) {
-    toast(tabId === "labor" ? "自動化OSの解放後に利用できます。" : "Action unavailable right now.", "warning");
+    toast(lockedTabCopy(tabId).detail, "warning");
     rejectFeedback();
     return;
   }
@@ -6429,6 +6687,10 @@ function resetOperationSurface({ resetAudio = false } = {}) {
 }
 
 function ensureActiveTabAvailable() {
+  if (isLaborTutorialActive()) {
+    if (activeTabId() !== "labor") setActiveTabSilently("labor");
+    return;
+  }
   const tabId = activeTabId();
   if (!GAME_TABS.includes(tabId) || !isTabAvailable(tabId)) setActiveTabSilently("farm");
 }
@@ -6641,7 +6903,7 @@ function storySpeakerCardMarkup(speaker, side, currentSpeakerId, context, depth)
   const opacity = speaking ? 1 : 0.92;
   const z = speaking ? 20 : Math.max(1, 12 - stackDepth);
   const iconMarkup = speaker.icon
-    ? `<img src="${escapeHtml(speaker.icon)}" alt="" loading="lazy" decoding="async">`
+    ? `<img src="${escapeHtml(speaker.icon)}" alt="" loading="eager" decoding="async">`
     : `<span class="story-side-placeholder">NO IMAGE</span>`;
   return `<article class="story-side story-side-card story-side-${side}${speaking ? " speaking" : " is-behind"}" style="--story-card-x:${x}px;--story-card-y:${y}px;--story-card-scale:${scale};--story-card-opacity:${opacity};z-index:${z};" data-speaker-id="${escapeHtml(speaker.id)}">
     <div class="story-side-frame">${iconMarkup}</div>
@@ -6703,10 +6965,117 @@ function renderStoryImagePopup(line, context = {}) {
   const caption = document.getElementById("story-image-popup-caption");
   if (image) {
     if (image.getAttribute("src") !== imageUrl) image.src = imageUrl;
+    image.loading = "eager";
     image.decoding = "async";
     image.alt = summary;
   }
   if (caption) caption.textContent = summary;
+}
+
+function decodeCommsImage(image) {
+  if (typeof image?.decode !== "function") return Promise.resolve();
+  try {
+    return image.decode().catch(() => undefined);
+  } catch {
+    return Promise.resolve();
+  }
+}
+
+function waitForCommsImageReady(image) {
+  if (!image) return Promise.resolve();
+  if (image.complete) return decodeCommsImage(image);
+  return new Promise((resolve) => {
+    let settled = false;
+    const cleanup = () => {
+      image.removeEventListener("load", finish);
+      image.removeEventListener("error", fail);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      decodeCommsImage(image).then(resolve);
+    };
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+    image.addEventListener("load", finish, { once: true });
+    image.addEventListener("error", fail, { once: true });
+    if (image.complete) finish();
+  });
+}
+
+function waitForCommsBackgroundReady(source) {
+  if (!source) return Promise.resolve();
+  const loader = new Image();
+  loader.src = source;
+  return waitForCommsImageReady(loader);
+}
+
+function storyCommsVisualKey(event, line, context = {}) {
+  const imageUrl = line?.kind === "image" && line.imageUrl
+    ? formatCommsText(line.imageUrl, context)
+    : "";
+  const speakerIcons = Object.values(event.speakers || {})
+    .map((speaker) => speaker?.icon || "")
+    .filter(Boolean)
+    .sort();
+  return JSON.stringify([event.id, event.background || "", imageUrl, ...speakerIcons]);
+}
+
+function prepareCommsVisual(container, key) {
+  if (container.dataset.visualReadyKey === key) {
+    container.classList.remove("visual-pending");
+    container.removeAttribute("aria-busy");
+    return false;
+  }
+  container.classList.add("visual-pending");
+  container.setAttribute("aria-busy", "true");
+  if (container.dataset.visualPendingKey === key) return false;
+  container.dataset.visualPendingKey = key;
+  return true;
+}
+
+function clearCommsVisualState(container) {
+  if (!container) return;
+  container.classList.remove("visual-pending");
+  container.removeAttribute("aria-busy");
+  delete container.dataset.visualReadyKey;
+  delete container.dataset.visualPendingKey;
+}
+
+function revealStoryCommsWhenReady(overlay, key, backgroundSource) {
+  const token = ++storyVisualRevealToken;
+  const images = Array.from(overlay.querySelectorAll(".story-side-stack img"));
+  const popup = document.getElementById("story-image-popup");
+  const popupImage = document.getElementById("story-image-popup-img");
+  if (popupImage && popup && !popup.classList.contains("hidden")) images.push(popupImage);
+  Promise.all([
+    ...images.map(waitForCommsImageReady),
+    waitForCommsBackgroundReady(backgroundSource)
+  ]).then(() => {
+    if (token !== storyVisualRevealToken || !activeStory) return;
+    if (overlay.dataset.visualPendingKey !== key) return;
+    overlay.dataset.visualReadyKey = key;
+    delete overlay.dataset.visualPendingKey;
+    overlay.classList.remove("visual-pending");
+    overlay.removeAttribute("aria-busy");
+  });
+}
+
+function revealCompactCommsWhenReady(banner, image, key) {
+  const token = ++commsVisualRevealToken;
+  waitForCommsImageReady(image).then(() => {
+    if (token !== commsVisualRevealToken || !activeComms) return;
+    if (banner.dataset.visualPendingKey !== key) return;
+    banner.dataset.visualReadyKey = key;
+    delete banner.dataset.visualPendingKey;
+    banner.classList.remove("visual-pending");
+    banner.removeAttribute("aria-busy");
+  });
 }
 
 function advanceStoryImagePopup() {
@@ -6721,6 +7090,8 @@ function renderStoryComms() {
   const overlay = document.getElementById("story-comms-overlay");
   if (!overlay || !activeStory) {
     if (overlay) {
+      storyVisualRevealToken += 1;
+      clearCommsVisualState(overlay);
       overlay.classList.add("hidden");
       overlay.setAttribute("aria-hidden", "true");
     }
@@ -6743,6 +7114,8 @@ function renderStoryComms() {
   const currentLine = storyPageFor(event, page);
   const imageLine = currentLine.kind === "image" && currentLine.imageUrl;
   const lastPage = page >= pages.length - 1;
+  const visualKey = storyCommsVisualKey(event, currentLine, activeStory.context);
+  const shouldWaitForVisuals = prepareCommsVisual(overlay, visualKey);
   document.body.classList.add("story-comms-active");
   overlay.classList.remove("hidden");
   overlay.setAttribute("aria-hidden", "false");
@@ -6801,6 +7174,7 @@ function renderStoryComms() {
         `<button class="story-link-button" data-story-choice="${escapeHtml(choice.id)}"><span>${escapeHtml(choice.label)}</span><i></i></button>`
       ).join("")
       : `<button class="story-link-button story-next-button" data-story-next><span>NEXT</span><i></i></button>`;
+  if (shouldWaitForVisuals) revealStoryCommsWhenReady(overlay, visualKey, event.background || "");
 }
 
 function storyEffectApplies(effect, choiceId) {
@@ -6830,6 +7204,12 @@ function runStoryEffect(effect, context = {}) {
       .forEach((osId) => {
         supportOS[osId] = true;
       });
+    return;
+  }
+  if (effect.action === "labor_tutorial" && effect.value) {
+    if (effect.value === "start") startLaborTutorial();
+    if (effect.value === "advanced") continueAdvancedLaborTutorial();
+    if (effect.value === "complete") completeLaborTutorial();
     return;
   }
   if (effect.action === "activate_labor_package_all" && effect.value) {
@@ -7004,7 +7384,11 @@ function isCommsInteractionTarget(target) {
 function renderComms() {
   const banner = document.getElementById("comms-banner");
   if (!banner || !activeComms) {
-    if (banner) banner.classList.add("hidden");
+    if (banner) {
+      commsVisualRevealToken += 1;
+      clearCommsVisualState(banner);
+      banner.classList.add("hidden");
+    }
     document.body.classList.remove("comms-modal-active");
     return;
   }
@@ -7015,7 +7399,10 @@ function renderComms() {
   banner.classList.toggle("blocking", Boolean(event.blocking));
   const commsIcon = document.getElementById("comms-icon");
   const commsIconSource = event.icon || text("comms_fallback_icon", "assets/icons/credit.webp");
+  const visualKey = JSON.stringify([event.id, commsIconSource]);
+  const shouldWaitForVisuals = prepareCommsVisual(banner, visualKey);
   if (commsIcon?.getAttribute("src") !== commsIconSource) commsIcon.src = commsIconSource;
+  if (commsIcon) commsIcon.loading = "eager";
   document.getElementById("comms-kicker").textContent = event.kicker || "COMMS";
   document.getElementById("comms-speaker-name").textContent = event.speakerName || "---";
   document.getElementById("comms-speaker-role").textContent = event.speakerRole || "---";
@@ -7028,6 +7415,7 @@ function renderComms() {
     ).join("")
     : `<button data-comms-next>${text("comms_next", "次へ")}</button>`;
   banner.classList.remove("hidden");
+  if (shouldWaitForVisuals) revealCompactCommsWhenReady(banner, commsIcon, visualKey);
 }
 
 function commsEffectApplies(effect, choiceId) {
@@ -8782,11 +9170,9 @@ function commitSupportRobotGachaContract() {
   addRadarSuspicion(radarPurchaseSuspicion(offer.price));
   currentFloorDevices().push(robot);
   supportRobotRoster();
-  placementSelection = { kind: "device", id: robot.id };
-  selectedDeviceId = robot.id;
 
   const itemName = EQUIPMENT.support_robot?.name || "サポートロボット";
-  setStatus(itemName + "と契約しました。施設レイアウトで配置地点を選択してください。");
+  setStatus(itemName + "と契約しました。栽培区画の設備ストックに追加しました。");
   toast(supportRobotDisplayName(robot) + "を契約しました。");
   pulseElement(document.getElementById("money-value"));
   trackPurchase("device", "support_robot", offer.price, {
@@ -8808,7 +9194,6 @@ function commitSupportRobotGachaContract() {
   triggerComms("buy_support_robot", commsContext);
   triggerComms("buy_item", commsContext);
   updateProgressionUnlocks();
-  switchTab("farm");
   checkVictory();
   saveGame();
   render();
@@ -8882,7 +9267,7 @@ function closeSupportRobotGachaOverlay() {
   supportRobotGachaState.selectedRobot = null;
   lastTickAt = Date.now();
   render();
-  document.querySelector("[data-cancel-placement]")?.focus({ preventScroll: true });
+  document.querySelector('.tab[data-tab="shop"]')?.focus({ preventScroll: true });
 }
 
 function bindSupportRobotGachaEvents() {
@@ -8968,23 +9353,19 @@ function buyEquipment(itemId) {
       slots: Array(definition.slots).fill(null)
     };
     currentShelves().push(unit);
-    placementSelection = { kind: "unit", id: unit.id };
-    selectedUnitId = unit.id;
   }
   if (FLOOR_DEVICES[itemId]) {
     const device = createFloorDevice(itemId);
     device.tags = tags;
     currentFloorDevices().push(device);
     if (itemId === "support_robot") supportRobotRoster();
-    placementSelection = { kind: "device", id: device.id };
-    selectedDeviceId = device.id;
   }
   if (itemId === "fridge") state.equipment.fridge = true;
   if (itemId === "support_os_harvest") state.supportOS.harvest = true;
   if (itemId === "support_os_planting") state.supportOS.planting = true;
   if (itemId === "support_os_cleaning") state.supportOS.cleaning = true;
 
-  const placementNote = GROW_UNITS[itemId] || FLOOR_DEVICES[itemId] ? " Select a place in the facility layout." : "";
+  const placementNote = GROW_UNITS[itemId] || FLOOR_DEVICES[itemId] ? " 栽培区画の設備ストックに追加しました。" : "";
   setStatus(`${EQUIPMENT[itemId].name}を購入しました。${placementNote}`);
   toast(`${EQUIPMENT[itemId].name}を調達`);
   playSoundFirst(["buy_equipment", "equipment_purchase", "purchase"]);
@@ -13415,6 +13796,7 @@ function renderInfo() {
   `;
 }
 function render() {
+  syncLaborTutorialLock();
   ensureActiveTabAvailable();
   const cleaningNeeded = ownedBases().some((base) => [...base.shelves, ...base.floorDevices].some(needsCleaning));
   document.querySelector('[data-tab="farm"]')?.classList.toggle("needs-cleaning-tab", cleaningNeeded);
@@ -13436,6 +13818,7 @@ function render() {
 }
 
 function renderRuntime() {
+  syncLaborTutorialLock();
   ensureActiveTabAvailable();
   updateTabIndicators();
   renderHeader();
@@ -13472,14 +13855,47 @@ function renderTimeControl() {
   const gachaPaused = isRobotGachaBlocking();
   const deadlinePaused = isTimedModeCountdownBlocking();
   const settingsPaused = settingsPanelOpen;
-  button.disabled = state.ended || settingsPaused || commsPaused || gachaPaused || deadlinePaused;
-  button.classList.toggle("paused", state.paused || !state.timeUnlocked || settingsPaused || commsPaused || gachaPaused || deadlinePaused);
-  document.getElementById("time-control-label").textContent = state.ended ? "OPERATION CLOSED" : settingsPaused ? "SETTINGS OPEN" : deadlinePaused ? "DEADLINE NOTICE" : gachaPaused ? "CONTRACT PAUSED" : commsPaused ? "COMMS PAUSED" : !state.timeUnlocked ? "TUTORIAL DAY LOCK" : state.paused ? "REALTIME PAUSED" : "REALTIME RUNNING";
-  document.getElementById("time-control-text").textContent = state.ended ? "Game ended" : settingsPaused ? "設定中" : deadlinePaused ? "残り日数を確認" : gachaPaused ? "契約演出中" : commsPaused ? "通信中" : !state.timeUnlocked ? "DAY停止中" : state.paused ? "Resume" : "Pause";
-  document.getElementById("time-control-icon").textContent = state.ended ? "■" : settingsPaused || deadlinePaused || gachaPaused || commsPaused ? "LOCK" : !state.timeUnlocked ? "LOCK" : state.paused ? "▶" : "Ⅱ";
+  const tutorialPaused = isLaborTutorialActive();
+  const interactionLocked = settingsPaused || commsPaused || gachaPaused || deadlinePaused || tutorialPaused;
+  button.disabled = state.ended || interactionLocked;
+  button.classList.toggle("paused", state.paused || !state.timeUnlocked || interactionLocked);
+  document.getElementById("time-control-label").textContent = state.ended ? "OPERATION CLOSED" : settingsPaused ? "SETTINGS OPEN" : deadlinePaused ? "DEADLINE NOTICE" : gachaPaused ? "CONTRACT PAUSED" : commsPaused ? "COMMS PAUSED" : tutorialPaused ? "CONNECTION TRAINING" : !state.timeUnlocked ? "TUTORIAL DAY LOCK" : state.paused ? "REALTIME PAUSED" : "REALTIME RUNNING";
+  document.getElementById("time-control-text").textContent = state.ended ? "Game ended" : settingsPaused ? "設定中" : deadlinePaused ? "残り日数を確認" : gachaPaused ? "契約演出中" : commsPaused ? "通信中" : tutorialPaused ? "接続訓練中" : !state.timeUnlocked ? "DAY停止中" : state.paused ? "Resume" : "Pause";
+  document.getElementById("time-control-icon").textContent = state.ended ? "■" : interactionLocked || !state.timeUnlocked ? "LOCK" : state.paused ? "▶" : "Ⅱ";
+}
+
+let laborTutorialBlockedFeedbackAt = 0;
+
+function isLaborTutorialInteractionTarget(target, eventType = "") {
+  if (!target?.closest) return false;
+  if (target.closest("#story-comms-overlay, #comms-banner, #toast-container, #start-screen")) return true;
+  if (target.closest('.tab[data-tab="labor"]')) return true;
+  const tutorial = ensureLaborTutorialState();
+  if (tutorial.phase.endsWith("_review")) return false;
+  if (target.closest("#labor-screen .labor-quick-guide")) return true;
+  if (target.closest("#labor-screen #labor-blueprint-editor")) return true;
+  if (eventType === "wheel" && target.closest("#labor-screen")) return true;
+  if (tutorial.phase.startsWith("place_") && target.closest("#labor-screen .blueprint-palette-panel")) return true;
+  return false;
+}
+
+function bindLaborTutorialInputGuard() {
+  const guard = (event) => {
+    if (!isLaborTutorialActive() || isLaborTutorialInteractionTarget(event.target, event.type)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (["click", "pointerdown"].includes(event.type) && Date.now() - laborTutorialBlockedFeedbackAt > 900) {
+      laborTutorialBlockedFeedbackAt = Date.now();
+      toast("接続訓練中です。表示された手順を完了してください。", "warning");
+    }
+  };
+  ["pointerdown", "click", "contextmenu", "wheel", "keydown"].forEach((type) => {
+    document.addEventListener(type, guard, { capture: true, passive: false });
+  });
 }
 
 function bindEvents() {
+  bindLaborTutorialInputGuard();
   bindSupportRobotGachaEvents();
   document.getElementById("settings-button")?.addEventListener("click", () => openSettingsPanel("system"));
   document.getElementById("start-settings-button")?.addEventListener("click", () => openSettingsPanel("system"));
@@ -14290,6 +14706,23 @@ function clearDragState() {
   window.requestAnimationFrame(applyUiGuide);
 }
 
+function launchLaborTutorialQaMode() {
+  clearSessionInteractionState();
+  startScreenOpen = false;
+  pausedBeforeStartScreen = false;
+  state.paused = false;
+  lastTickAt = Date.now();
+  document.body.classList.remove("start-screen-open");
+  document.body.classList.add("labor-tutorial-qa");
+  const startScreen = document.getElementById("start-screen");
+  startScreen?.classList.add("hidden");
+  startScreen?.setAttribute("aria-hidden", "true");
+  document.getElementById("modal-backdrop")?.classList.add("hidden");
+  document.getElementById("comms-banner")?.classList.add("hidden");
+  document.getElementById("story-comms-overlay")?.classList.add("hidden");
+  switchTab("labor");
+}
+
 async function bootstrap() {
   loadAppSettings();
   applyRuntimeSettings({ restartLoop: false });
@@ -14316,8 +14749,13 @@ async function bootstrap() {
   render();
   inputDiagnosticState.renderReached = true;
   pushLogEntry(state.log, "status", { duration: 5200 });
-  setInputDiagnosticStage("start-screen");
-  openStartScreen({ persist: false });
+  if (LABOR_TUTORIAL_QA_MODE) {
+    setInputDiagnosticStage("labor-tutorial-qa");
+    launchLaborTutorialQaMode();
+  } else {
+    setInputDiagnosticStage("start-screen");
+    openStartScreen({ persist: false });
+  }
   inputDiagnosticState.startScreenReached = true;
   hideBootLoading();
   setInputDiagnosticStage("ready");
