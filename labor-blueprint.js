@@ -1,6 +1,26 @@
 (() => {
   "use strict";
 
+  // Trial signal-flow animation. Set this to false, or add ?labormind=off,
+  // to restore the original static blueprint paths without changing behavior.
+  const LABOR_SIGNAL_FLOW_TRIAL_DEFAULT_ENABLED = true;
+  const LABOR_SIGNAL_FLOW_TRIAL_ENABLED = (() => {
+    try {
+      const override = new URLSearchParams(window.location.search).get("labormind");
+      if (["0", "off", "false"].includes(String(override || "").toLowerCase())) return false;
+      if (["1", "on", "true"].includes(String(override || "").toLowerCase())) return true;
+    } catch (_error) {
+    }
+    return LABOR_SIGNAL_FLOW_TRIAL_DEFAULT_ENABLED;
+  })();
+
+  function configureLaborSignalFlowTrial() {
+    const laborScreen = document.getElementById("labor-screen");
+    if (!laborScreen) return;
+    laborScreen.classList.toggle("labor-signal-flow-trial", LABOR_SIGNAL_FLOW_TRIAL_ENABLED);
+    laborScreen.dataset.signalFlow = LABOR_SIGNAL_FLOW_TRIAL_ENABLED ? "animated" : "static";
+  }
+
   // Trial feature: set this to false, or add ?laborassist=off, to omit the
   // natural-language summary without touching game logic.
   const LABOR_ASSIST_EXPERIMENT_DEFAULT_ENABLED = true;
@@ -1803,14 +1823,15 @@
         : blueprint.links.filter((link) => link.from === node.id && link.fromPin === pin.id);
       const label = pin.label;
       const tooltip = laborPinTooltip(node, pin, direction);
-      return `<div class="blueprint-pin-entry ${pin.kind}-pin ${links.length ? "connected" : ""}" ${laborTooltipAttributes(tooltip, label)}>
+      const disconnectable = direction === "input" && links.length > 0;
+      return `<div class="blueprint-pin-entry ${pin.kind}-pin ${links.length ? "connected" : ""} ${disconnectable ? "disconnectable" : ""}" ${laborTooltipAttributes(tooltip, label)}>
         <button class="blueprint-pin ${direction} ${pin.kind}"
           data-blueprint-pin-direction="${direction}"
           data-blueprint-pin-id="${escapeHtml(pin.id)}"
           data-blueprint-pin-kind="${escapeHtml(pin.kind)}"
           data-blueprint-node="${escapeHtml(node.id)}"
           type="button"
-          aria-label="${escapeHtml(label)}端子"></button>
+          aria-label="${escapeHtml(label)}端子${disconnectable ? "（クリックで接続解除）" : ""}"></button>
         <span class="blueprint-pin-cap">${escapeHtml(label)}${direction === "output" && links.length > 1 ? ` · ${links.length}` : ""}</span>
       </div>`;
     }).join("");
@@ -2025,6 +2046,7 @@
     const rootOut = laborDefaultPin("event", "output", "exec");
     const hasProgram = blueprint.links.some((link) => link.from === blueprint.rootId && link.fromPin === rootOut);
     if (emptyHint) emptyHint.hidden = hasProgram;
+    applyLaborBlueprintConnectionGuides(record);
     updateLaborAssistExperiment(record);
     requestAnimationFrame(() => {
       applyLaborBlueprintView();
@@ -2266,12 +2288,89 @@
     document.querySelectorAll(".blueprint-pin.wire-target").forEach((pin) => pin.classList.remove("wire-target"));
   }
 
+  function laborBlueprintExecReachableNodeIds(blueprint) {
+    const reachable = new Set();
+    const pending = [blueprint?.rootId];
+    while (pending.length) {
+      const nodeId = pending.shift();
+      if (!nodeId || reachable.has(nodeId)) continue;
+      const node = supportBlueprintNodeById(blueprint, nodeId);
+      if (!node) continue;
+      reachable.add(nodeId);
+      const execOutputs = new Set(
+        laborPinSchema(node.type).outputs.filter((pin) => pin.kind === "exec").map((pin) => pin.id)
+      );
+      blueprint.links
+        .filter((link) => link.from === nodeId && execOutputs.has(link.fromPin))
+        .forEach((link) => pending.push(link.to));
+    }
+    return reachable;
+  }
+
+  function laborBlueprintPinElements(direction, kind = "") {
+    return [...document.querySelectorAll(`#labor-screen [data-blueprint-pin-direction='${direction}']`)]
+      .filter((pin) => !kind || pin.dataset.blueprintPinKind === kind);
+  }
+
+  function applyLaborBlueprintConnectionGuides(record = selectedLaborRobotRecord()) {
+    const screen = document.getElementById("labor-screen");
+    if (!screen) return;
+    screen.querySelectorAll(".connection-guide-source").forEach((pin) => pin.classList.remove("connection-guide-source"));
+    screen.querySelectorAll(".connection-guide-entry").forEach((entry) => entry.classList.remove("connection-guide-entry"));
+    if (!record) return;
+
+    const blueprint = record.robot.supportBlueprint;
+    const reachable = laborBlueprintExecReachableNodeIds(blueprint);
+    laborBlueprintPinElements("output", "exec").forEach((pin) => {
+      const nodeId = pin.dataset.blueprintNode;
+      const pinId = pin.dataset.blueprintPinId;
+      if (!reachable.has(nodeId)) return;
+      const isConnected = blueprint.links.some((link) => link.from === nodeId && link.fromPin === pinId);
+      if (isConnected) return;
+      pin.classList.add("connection-guide-source");
+      pin.closest(".blueprint-pin-entry")?.classList.add("connection-guide-entry");
+    });
+  }
+
+  function laborBlueprintCanConnectToInput(wireDrag, target, blueprint) {
+    if (!wireDrag || !target || !blueprint) return false;
+    const from = supportBlueprintNodeById(blueprint, wireDrag.fromId);
+    const to = supportBlueprintNodeById(blueprint, target.dataset.blueprintNode);
+    const output = from ? laborPinDefinition(from.type, "output", wireDrag.fromPin) : null;
+    const input = to ? laborPinDefinition(to.type, "input", target.dataset.blueprintPinId) : null;
+    if (!from || !to || from.id === to.id || !output || !input || output.kind !== input.kind) return false;
+    return !supportBlueprintHasPath(blueprint, to.id, from.id);
+  }
+
+  function clearLaborBlueprintWireCandidates() {
+    const screen = document.getElementById("labor-screen");
+    screen?.querySelectorAll(".wire-candidate").forEach((pin) => pin.classList.remove("wire-candidate"));
+    screen?.querySelectorAll(".wire-candidate-entry").forEach((entry) => entry.classList.remove("wire-candidate-entry"));
+    screen?.querySelectorAll(".wire-candidate-node").forEach((node) => node.classList.remove("wire-candidate-node"));
+    document.getElementById("labor-blueprint-editor")?.classList.remove("wire-routing-active");
+  }
+
+  function applyLaborBlueprintWireCandidates(wireDrag) {
+    clearLaborBlueprintWireCandidates();
+    if (!wireDrag || wireDrag.kind !== "exec") return;
+    const record = selectedLaborRobotRecord();
+    const blueprint = record?.robot.supportBlueprint;
+    if (!blueprint) return;
+    let candidateCount = 0;
+    laborBlueprintPinElements("input", "exec").forEach((pin) => {
+      if (!laborBlueprintCanConnectToInput(wireDrag, pin, blueprint)) return;
+      candidateCount += 1;
+      pin.classList.add("wire-candidate");
+      pin.closest(".blueprint-pin-entry")?.classList.add("wire-candidate-entry");
+      pin.closest(".blueprint-node")?.classList.add("wire-candidate-node");
+    });
+    document.getElementById("labor-blueprint-editor")?.classList.toggle("wire-routing-active", candidateCount > 0);
+  }
+
   function matchingLaborBlueprintInputAt(clientX, clientY, wireDrag) {
     const target = document.elementFromPoint(clientX, clientY)?.closest?.("[data-blueprint-pin-direction='input']");
-    if (!target || !wireDrag) return null;
-    if (target.dataset.blueprintPinKind !== wireDrag.kind) return null;
-    if (target.dataset.blueprintNode === wireDrag.fromId) return null;
-    return target;
+    const blueprint = selectedLaborRobotRecord()?.robot.supportBlueprint;
+    return laborBlueprintCanConnectToInput(wireDrag, target, blueprint) ? target : null;
   }
 
   function laborPaletteDropEditorAt(clientX, clientY) {
@@ -2402,6 +2501,7 @@
     laborBlueprintPan = null;
     laborBlueprintPinch = null;
     clearLaborBlueprintPinTargets();
+    clearLaborBlueprintWireCandidates();
     const editor = document.getElementById("labor-blueprint-editor");
     editor?.classList.remove("dragging", "panning");
     renderLaborBlueprintWires();
@@ -2425,6 +2525,7 @@
     laborBlueprintWireDrag = null;
     laborBlueprintPan = null;
     clearLaborBlueprintPinTargets();
+    clearLaborBlueprintWireCandidates();
     editor.classList.add("panning");
   }
 
@@ -2464,6 +2565,7 @@
         current: laborBlueprintWorldPoint(event.clientX, event.clientY)
       };
       editor.classList.add("dragging");
+      applyLaborBlueprintWireCandidates(laborBlueprintWireDrag);
       renderLaborBlueprintWires();
       event.preventDefault();
       return true;
@@ -2573,6 +2675,7 @@
     if (wireDrag && !cancelled) {
       const input = matchingLaborBlueprintInputAt(event.clientX, event.clientY, wireDrag);
       laborBlueprintWireDrag = null;
+      clearLaborBlueprintWireCandidates();
       if (input) {
         connectSupportBlueprintPins(
           wireDrag.fromId,
@@ -2585,6 +2688,7 @@
       }
     } else if (wireDrag) {
       laborBlueprintWireDrag = null;
+      clearLaborBlueprintWireCandidates();
       renderLaborBlueprintWires();
     }
 
@@ -2602,6 +2706,7 @@
     laborBlueprintPointers.delete(event.pointerId);
     if (laborBlueprintPointers.size < 2) laborBlueprintPinch = null;
     clearLaborBlueprintPinTargets();
+    clearLaborBlueprintWireCandidates();
     if (!laborBlueprintPointers.size) editor?.classList.remove("dragging", "panning");
     try {
       editor?.releasePointerCapture(event.pointerId);
@@ -2859,6 +2964,8 @@
       hideLaborTooltip(true);
     }
   });
+
+  configureLaborSignalFlowTrial();
 
   window.configureLaborTooltips = configureLaborTooltips;
   window.renderLabor = renderLabor;

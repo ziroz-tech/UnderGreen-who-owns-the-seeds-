@@ -13172,3 +13172,209 @@ html.low-spec-mode .ending-roll-skip {
     grid-template-columns: 1fr;
   }
 }
+/* Trial: animated dotted blueprint paths. Disable with ?labormind=off. */
+#labor-screen.labor-signal-flow-trial .blueprint-wire:not(.preview) {
+  stroke-dasharray: 14 8;
+  animation: labor-signal-flow 2.5s linear infinite;
+}
+
+@keyframes labor-signal-flow {
+  to { stroke-dashoffset: -44; }
+}
+
+html.low-spec-mode #labor-screen.labor-signal-flow-trial .blueprint-wire {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #labor-screen.labor-signal-flow-trial .blueprint-wire {
+    animation: none !important;
+  }
+}
+
+/* Execution-pin handoff guide: highlights the current open flow frontier. */
+#labor-screen .blueprint-pin.exec.connection-guide-source::before {
+  border-left-color: var(--yellow);
+  filter: drop-shadow(0 0 7px rgba(245, 214, 91, 0.9));
+  animation: labor-exec-source-nudge 1.2s ease-in-out infinite;
+}
+
+#labor-screen .blueprint-pin.exec.connection-guide-source::after,
+#labor-screen .blueprint-pin.exec.wire-candidate::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(245, 214, 91, 0.9);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: labor-exec-pin-pulse 1.4s ease-out infinite;
+}
+
+#labor-screen .blueprint-pin-entry.connection-guide-entry .blueprint-pin-cap,
+#labor-screen .blueprint-pin-entry.wire-candidate-entry .blueprint-pin-cap {
+  overflow: visible;
+  max-width: 118px;
+}
+
+#labor-screen .blueprint-pin-entry.connection-guide-entry .blueprint-pin-cap::after {
+  content: "  DRAG";
+  color: var(--yellow);
+  font-size: 7px;
+  text-shadow: 0 0 7px rgba(245, 214, 91, 0.85);
+  animation: labor-exec-label-blink 1.2s ease-in-out infinite;
+}
+
+#labor-screen #labor-blueprint-editor.wire-routing-active .blueprint-pin-entry.connection-guide-entry .blueprint-pin-cap::after {
+  opacity: 0.35;
+  animation: none;
+}
+
+#labor-screen .blueprint-node.wire-candidate-node {
+  border-color: rgba(113, 255, 184, 0.72);
+  box-shadow: 0 0 0 1px rgba(113, 255, 184, 0.2), 0 0 20px rgba(113, 255, 184, 0.16);
+}
+
+#labor-screen .blueprint-pin.exec.wire-candidate::before {
+  border-left-color: var(--green);
+  filter: drop-shadow(0 0 8px rgba(113, 255, 184, 0.95));
+  transform: scale(1.2);
+}
+
+#labor-screen .blueprint-pin.exec.wire-candidate::after {
+  border-color: rgba(113, 255, 184, 0.95);
+  animation-duration: 0.9s;
+}
+
+#labor-screen .blueprint-pin-entry.wire-candidate-entry .blueprint-pin-cap::after {
+  content: "  CONNECT";
+  color: var(--green);
+  font-size: 7px;
+  text-shadow: 0 0 7px rgba(113, 255, 184, 0.85);
+}
+
+#labor-screen .blueprint-pin.exec.wire-candidate.wire-target::before {
+  border-left-color: var(--yellow);
+  filter: drop-shadow(0 0 10px rgba(245, 214, 91, 1));
+  transform: scale(1.55);
+}
+
+@keyframes labor-exec-source-nudge {
+  0%, 100% { transform: translateX(0) scale(1); }
+  50% { transform: translateX(4px) scale(1.28); }
+}
+
+@keyframes labor-exec-pin-pulse {
+  0% { opacity: 0.9; transform: scale(0.65); }
+  75%, 100% { opacity: 0; transform: scale(2.1); }
+}
+
+@keyframes labor-exec-label-blink {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+html.low-spec-mode #labor-screen .connection-guide-source::before,
+html.low-spec-mode #labor-screen .connection-guide-source::after,
+html.low-spec-mode #labor-screen .wire-candidate::after,
+html.low-spec-mode #labor-screen .connection-guide-entry .blueprint-pin-cap::after {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #labor-screen .connection-guide-source::before,
+  #labor-screen .connection-guide-source::after,
+  #labor-screen .wire-candidate::after,
+  #labor-screen .connection-guide-entry .blueprint-pin-cap::after {
+    animation: none !important;
+  }
+}
+
+/* Execution-pin cursors and disconnect affordance. */
+#labor-screen .output-stack .blueprint-pin.exec {
+  cursor: grab;
+}
+
+#labor-screen #labor-blueprint-editor:not(.dragging)
+  .output-stack .blueprint-pin-entry:not(.connected) .blueprint-pin.exec:hover {
+  animation: labor-pin-grip-cursor 0.9s steps(1, end) infinite;
+}
+
+#labor-screen .output-stack .blueprint-pin.exec:active,
+#labor-screen #labor-blueprint-editor.wire-routing-active .output-stack .blueprint-pin.exec {
+  cursor: grabbing;
+}
+
+#labor-screen #labor-blueprint-editor:not(.wire-routing-active)
+  .input-stack .blueprint-pin-entry.disconnectable .blueprint-pin.exec {
+  cursor: pointer;
+}
+
+#labor-screen #labor-blueprint-editor:not(.wire-routing-active)
+  .input-stack .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover::before {
+  border-left-color: #ff7478;
+  opacity: 0.24;
+  filter: drop-shadow(0 0 8px rgba(255, 76, 83, 0.9));
+  transform: scale(0.82);
+}
+
+#labor-screen #labor-blueprint-editor:not(.wire-routing-active)
+  .input-stack .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover::after {
+  content: "\00d7";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #ff7478;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 7px rgba(255, 76, 83, 0.95);
+  pointer-events: none;
+  animation: labor-disconnect-pin 0.7s ease-in-out infinite alternate;
+}
+
+#labor-screen #labor-blueprint-editor:not(.wire-routing-active)
+  .input-stack .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover + .blueprint-pin-cap {
+  overflow: visible;
+  max-width: 132px;
+  color: #ff8b8f;
+  text-decoration: line-through;
+  text-shadow: 0 0 6px rgba(255, 76, 83, 0.7);
+}
+
+#labor-screen #labor-blueprint-editor:not(.wire-routing-active)
+  .input-stack .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover + .blueprint-pin-cap::after {
+  content: "  DISCONNECT";
+  display: inline-block;
+  color: #ff7478;
+  font-size: 7px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+@keyframes labor-disconnect-pin {
+  from { opacity: 0.72; transform: scale(0.88); }
+  to { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes labor-pin-grip-cursor {
+  0%, 49.99% { cursor: grab; }
+  50%, 100% { cursor: grabbing; }
+}
+
+html.low-spec-mode #labor-screen .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover::after {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #labor-screen #labor-blueprint-editor:not(.dragging)
+    .output-stack .blueprint-pin-entry:not(.connected) .blueprint-pin.exec:hover {
+    animation: none !important;
+    cursor: grab;
+  }
+
+  #labor-screen .blueprint-pin-entry.disconnectable .blueprint-pin.exec:hover::after {
+    animation: none !important;
+  }
+}
