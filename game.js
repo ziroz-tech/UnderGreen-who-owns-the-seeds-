@@ -20,6 +20,7 @@ let ROBOT_PERSONALITY_EFFECTS = {};
 let ROBOT_PERSONALITY_TRIGGERS = [];
 let ROBOT_PERSONALITY_RARITIES = [];
 let SUPPORT_ROBOT_BLACKOUT_LINES = [];
+let SUPPORT_ROBOT_TALK_EVENTS = [];
 let EVENTS = [];
 let QUIET_NEWS = [];
 let EQUIPMENT = {};
@@ -247,7 +248,7 @@ let startModeView = "day45";
 let startTitleTapCount = 0;
 let startTitleTapAt = 0;
 let startLaunchPending = false;
-const COMMS_DEDUPE_TRIGGERS = new Set(["plant_resource_shortage", "resource_low"]);
+const COMMS_DEDUPE_TRIGGERS = new Set(["plant_resource_shortage"]);
 const LABOR_TUTORIAL_EVENT_TRIGGERS = new Set([
   "labor_first_open",
   "labor_tutorial_cleaning_completed",
@@ -791,6 +792,7 @@ const REQUIRED_GAME_DATA_PATHS = [
   "data/support_robot_personality_effects.csv",
   "data/support_robot_personality_triggers.csv",
   "data/support_robot_blackout_lines.csv",
+  "data/support_robot_talk_events.csv",
   "data/equipment.csv",
   "data/unlocks.csv",
   "data/area_profiles.csv",
@@ -1303,7 +1305,26 @@ async function loadExternalData() {
       enabled: String(row.enabled || "true").trim().toLowerCase() !== "false"
     })).filter((row) => row.text && row.enabled && row.weight > 0);
   });
-  await loadRequiredCsv("data/equipment.csv", (rows) => {
+  await loadRequiredCsv("data/support_robot_talk_events.csv", (rows) => {
+    SUPPORT_ROBOT_TALK_EVENTS = rows.map((row, index) => ({
+      id: String(row.id || ("support-robot-talk-" + (index + 1))).trim(),
+      triggerType: String(row.triggerType || "flag").trim(),
+      triggerKey: String(row.triggerKey || "").trim(),
+      storyTrigger: String(row.storyTrigger || "").trim(),
+      robotTarget: String(row.robotTarget || "initial").trim(),
+      markerLabel: String(row.markerLabel || "会話があります").trim(),
+      once: String(row.once || "true").trim().toLowerCase() !== "false",
+      priority: toNumber(row.priority, 0),
+      startDay: Math.max(1, Math.floor(toNumber(row.startDay, 1))),
+      intervalDays: Math.max(1, Math.floor(toNumber(row.intervalDays, 1))),
+      resource: String(row.resource || "").trim(),
+      threshold: Math.max(0, toNumber(row.threshold, 0)),
+      missingDevice: String(row.missingDevice || "").trim(),
+      requirements: toRequirements(row.requirements),
+      enabled: String(row.enabled || "true").trim().toLowerCase() !== "false"
+    })).filter((entry) => entry.id && entry.storyTrigger && entry.enabled)
+      .sort((a, b) => b.priority - a.priority);
+  });  await loadRequiredCsv("data/equipment.csv", (rows) => {
     EQUIPMENT = rowsToObject(rows, (row) => ({
       name: row.name,
       icon: row.icon,
@@ -2473,6 +2494,7 @@ function createInitialState(mode = "day45") {
     automation: createDefaultSupportAutomation(),
     laborTutorial: createDefaultLaborTutorialState(),
     supportPersonalityTriggerState: { lastProcessed: {} },
+    supportRobotTalk: createDefaultSupportRobotTalkState(),
     radar: createDefaultRadarState(),
     resourceRemainders: { water: 0, nutrient: 0 },
     dayProgress: 0,
@@ -3602,6 +3624,7 @@ function loadGame() {
   state.day30Recorded = Boolean(state.day30Recorded);
   state.day30RecordId ||= null;
   state.supportRobotGranted = Boolean(state.supportRobotGranted);
+  ensureSupportRobotTalkState();
   state.tradeStats ||= { unitsSold: 0, revenue: 0, byMarket: { lower: 0, medical: 0, upper: 0, rebel: 0 }, byMarketQty: { lower: 0, medical: 0, upper: 0, rebel: 0 }, byCrop: {}, eventRevenue: 0, foodToRebels: 0, weaponsToRebels: 0 };
   state.tradeStats.byMarket ||= { lower: 0, medical: 0, upper: 0, rebel: 0 };
   state.tradeStats.byMarketQty ||= { lower: 0, medical: 0, upper: 0, rebel: 0 };
@@ -3745,6 +3768,257 @@ function supportRobotRoster() {
   return records;
 }
 
+function createDefaultSupportRobotTalkState() {
+  return {
+    pending: [],
+    completed: {},
+    activeConditions: {},
+    resourceCycles: {},
+    flagCounts: {}
+  };
+}
+
+function ensureSupportRobotTalkState() {
+  const source = state.supportRobotTalk && typeof state.supportRobotTalk === "object"
+    ? state.supportRobotTalk
+    : createDefaultSupportRobotTalkState();
+  const seenKeys = new Set();
+  source.pending = (Array.isArray(source.pending) ? source.pending : [])
+    .map((entry) => ({
+      key: String(entry?.key || "").trim(),
+      ruleId: String(entry?.ruleId || "").trim(),
+      storyTrigger: String(entry?.storyTrigger || "").trim(),
+      robotId: String(entry?.robotId || "").trim(),
+      baseId: String(entry?.baseId || "").trim(),
+      queuedDay: Math.max(1, Number(entry?.queuedDay) || Number(state.day) || 1),
+      priority: Number(entry?.priority) || 0,
+      markerLabel: String(entry?.markerLabel || "会話があります"),
+      context: entry?.context && typeof entry.context === "object" ? entry.context : {}
+    }))
+    .filter((entry) => {
+      if (!entry.key || !entry.ruleId || !entry.storyTrigger || !entry.robotId || seenKeys.has(entry.key)) return false;
+      seenKeys.add(entry.key);
+      return true;
+    });
+  source.completed = source.completed && typeof source.completed === "object" ? source.completed : {};
+  source.activeConditions = source.activeConditions && typeof source.activeConditions === "object" ? source.activeConditions : {};
+  source.resourceCycles = source.resourceCycles && typeof source.resourceCycles === "object" ? source.resourceCycles : {};
+  source.flagCounts = source.flagCounts && typeof source.flagCounts === "object" ? source.flagCounts : {};
+  state.supportRobotTalk = source;
+  return source;
+}
+
+function supportRobotTalkRule(ruleId) {
+  return SUPPORT_ROBOT_TALK_EVENTS.find((entry) => entry.id === ruleId) || null;
+}
+
+function findSupportRobotRecordById(robotId) {
+  for (const base of ownedBases()) {
+    const robot = base.floorDevices?.find((device) => device.id === robotId && device.type === "support_robot");
+    if (robot) return { base, robot };
+  }
+  return null;
+}
+
+function supportRobotTalkTargetRecord(rule, preferredRobotId = "") {
+  const placed = supportRobotRoster().filter(({ robot }) => robot.placed);
+  if (!placed.length) return null;
+  const preferred = preferredRobotId
+    ? placed.find(({ robot }) => robot.id === preferredRobotId)
+    : null;
+  if (rule.robotTarget === "context" && preferred) return preferred;
+  if (rule.robotTarget === "current_base") {
+    return placed.find(({ base }) => base.id === state.activeBaseId) || preferred || placed[0];
+  }
+  if (rule.robotTarget === "any") return preferred || placed[0];
+  return placed.find(({ robot }) => robot.isInitialSupportRobot) || preferred || placed[0];
+}
+
+function supportRobotTalkContext(record, extra = {}) {
+  const base = record?.base;
+  const robot = record?.robot;
+  const plants = (base?.shelves || []).flatMap((unit) => unit.slots || []).filter(Boolean);
+  const readyCount = plants.filter((plant) => plant.ready && !plant.dead).length;
+  const growingCount = plants.filter((plant) => !plant.ready && !plant.dead).length;
+  const cleaningCount = [...(base?.shelves || []), ...(base?.floorDevices || [])].filter(needsCleaning).length;
+  const inventoryCount = (state.inventory || []).reduce((sum, item) => sum + Math.max(0, Number(item.qty) || 0), 0);
+  return {
+    ...extra,
+    robotId: robot?.id || "",
+    robotName: robot ? supportRobotDisplayName(robot) : "サポートロボット",
+    baseId: base?.id || "",
+    baseName: base?.name || "農園",
+    day: Math.max(1, Math.floor(Number(state.day) || 1)),
+    water: formatResource(Math.max(0, Number(state.water) || 0)),
+    nutrient: formatResource(Math.max(0, Number(state.nutrient) || 0)),
+    money: formatNumber(Number(state.money) || 0),
+    readyCount,
+    growingCount,
+    plantCount: readyCount + growingCount,
+    cleaningCount,
+    inventoryCount
+  };
+}
+
+function supportRobotTalkStoryAvailable(rule) {
+  return STORY_EVENTS.some((event) =>
+    event.trigger === rule.storyTrigger
+    && (!event.once || !state.storySeen?.[event.id])
+  );
+}
+
+function supportRobotTalkResourceCondition(rule) {
+  if (!["water", "nutrient"].includes(rule.resource)) return false;
+  const belowThreshold = (Number(state[rule.resource]) || 0) < rule.threshold;
+  const producerMissing = !rule.missingDevice
+    || !allFloorDevices().some((device) => device.type === rule.missingDevice && device.placed);
+  return belowThreshold && producerMissing && requirementsMet(rule.requirements || []);
+}
+
+function queueSupportRobotTalkRule(rule, occurrenceKey, context = {}, preferredRobotId = "") {
+  if (!rule || !occurrenceKey || state.debugMode || state.ended) return false;
+  const talk = ensureSupportRobotTalkState();
+  if (rule.once && talk.completed[rule.id]) return false;
+  if (talk.completed[occurrenceKey] || talk.pending.some((entry) => entry.key === occurrenceKey)) return false;
+  if (!requirementsMet(rule.requirements || []) || !supportRobotTalkStoryAvailable(rule)) return false;
+  const record = supportRobotTalkTargetRecord(rule, preferredRobotId || context.robotId);
+  if (!record) return false;
+  talk.pending.push({
+    key: occurrenceKey,
+    ruleId: rule.id,
+    storyTrigger: rule.storyTrigger,
+    robotId: record.robot.id,
+    baseId: record.base.id,
+    queuedDay: Math.max(1, Math.floor(Number(state.day) || 1)),
+    priority: rule.priority,
+    markerLabel: rule.markerLabel,
+    context: supportRobotTalkContext(record, context)
+  });
+  talk.pending.sort((left, right) => (right.priority - left.priority) || (left.queuedDay - right.queuedDay));
+  requestFarmRender(record.base);
+  return true;
+}
+
+function queueSupportRobotTalkFlag(flag, context = {}, preferredRobotId = "") {
+  if (!state || state.debugMode || state.ended) return false;
+  const talk = ensureSupportRobotTalkState();
+  let changed = false;
+  SUPPORT_ROBOT_TALK_EVENTS
+    .filter((rule) => rule.triggerType === "flag" && rule.triggerKey === flag)
+    .forEach((rule) => {
+      talk.flagCounts[rule.id] = Math.max(0, Number(talk.flagCounts[rule.id]) || 0) + 1;
+      const occurrenceKey = rule.once ? rule.id : rule.id + ":flag:" + talk.flagCounts[rule.id];
+      if (queueSupportRobotTalkRule(rule, occurrenceKey, { ...context, talkFlag: flag }, preferredRobotId)) changed = true;
+    });
+  if (changed) saveGame();
+  return changed;
+}
+
+function refreshSupportRobotTalkOpportunities({ persist = true } = {}) {
+  if (!state || state.debugMode || state.ended) return false;
+  const talk = ensureSupportRobotTalkState();
+  let changed = false;
+
+  talk.pending = talk.pending.filter((candidate) => {
+    const rule = supportRobotTalkRule(candidate.ruleId);
+    const record = findSupportRobotRecordById(candidate.robotId);
+    const valid = Boolean(
+      rule
+      && record?.robot?.placed
+      && !talk.completed[candidate.key]
+      && (!rule.once || !talk.completed[rule.id])
+      && supportRobotTalkStoryAvailable(rule)
+      && requirementsMet(rule.requirements || [])
+      && (rule.triggerType !== "resource_low" || supportRobotTalkResourceCondition(rule))
+    );
+    if (!valid) {
+      changed = true;
+      return false;
+    }
+    if (candidate.baseId !== record.base.id) {
+      candidate.baseId = record.base.id;
+      changed = true;
+    }
+    return true;
+  });
+
+  SUPPORT_ROBOT_TALK_EVENTS.filter((rule) => rule.triggerType === "resource_low").forEach((rule) => {
+    const active = supportRobotTalkResourceCondition(rule);
+    const wasActive = Boolean(talk.activeConditions[rule.id]);
+    if (active !== wasActive) {
+      talk.activeConditions[rule.id] = active;
+      changed = true;
+    }
+    if (!active) return;
+    if (!wasActive) {
+      talk.resourceCycles[rule.id] = Math.max(0, Number(talk.resourceCycles[rule.id]) || 0) + 1;
+    }
+    if (talk.pending.some((candidate) => candidate.ruleId === rule.id)) return;
+    const occurrenceKey = rule.once
+      ? rule.id
+      : rule.id + ":cycle:" + Math.max(1, Number(talk.resourceCycles[rule.id]) || 1);
+    if (queueSupportRobotTalkRule(rule, occurrenceKey, {
+      resource: rule.resource,
+      resourceName: rule.resource === "water" ? "水" : "養液",
+      threshold: rule.threshold,
+      missingDevice: rule.missingDevice,
+      missingDeviceName: FLOOR_DEVICES[rule.missingDevice]?.name || rule.missingDevice
+    })) changed = true;
+  });
+
+  const day = Math.max(1, Math.floor(Number(state.day) || 1));
+  SUPPORT_ROBOT_TALK_EVENTS.filter((rule) => rule.triggerType === "interval").forEach((rule) => {
+    if (day < rule.startDay || !requirementsMet(rule.requirements || [])) return;
+    if (talk.pending.some((candidate) => candidate.ruleId === rule.id)) return;
+    const scheduledDay = rule.startDay + Math.floor((day - rule.startDay) / rule.intervalDays) * rule.intervalDays;
+    const occurrenceKey = rule.id + ":day:" + scheduledDay;
+    if (queueSupportRobotTalkRule(rule, occurrenceKey, { scheduledDay })) changed = true;
+  });
+
+  if (changed) {
+    ownedBases().forEach((base) => requestFarmRender(base));
+    if (persist) saveGame();
+  }
+  return changed;
+}
+
+function supportRobotTalkForRobot(robotId) {
+  const talk = ensureSupportRobotTalkState();
+  const candidate = talk.pending
+    .filter((entry) => entry.robotId === robotId)
+    .sort((left, right) => (right.priority - left.priority) || (left.queuedDay - right.queuedDay))[0];
+  if (!candidate) return null;
+  const rule = supportRobotTalkRule(candidate.ruleId);
+  return rule ? { candidate, rule } : null;
+}
+
+function startSupportRobotTalk(robotId) {
+  const talkEntry = supportRobotTalkForRobot(robotId);
+  const record = findSupportRobotRecordById(robotId);
+  if (!talkEntry || !record?.robot?.placed) return false;
+  const { candidate, rule } = talkEntry;
+  const context = supportRobotTalkContext(record, {
+    ...candidate.context,
+    talkEventId: rule.id,
+    markerLabel: rule.markerLabel
+  });
+  if (!triggerStoryEvent(rule.storyTrigger, context)) {
+    toast("会話データを開始できませんでした。", "warning");
+    return false;
+  }
+  const talk = ensureSupportRobotTalkState();
+  talk.pending = talk.pending.filter((entry) => entry.key !== candidate.key);
+  talk.completed[candidate.key] = Date.now();
+  if (rule.once) talk.completed[rule.id] = Date.now();
+  requestFarmRender(record.base);
+  saveGame();
+  if (farmScreenIsActive() && record.base.id === currentBase().id) renderFarm();
+  playSound("ui_click", 0.12);
+  return true;
+}
+
+window.queueSupportRobotTalkFlag = queueSupportRobotTalkFlag;
+window.refreshSupportRobotTalkOpportunities = refreshSupportRobotTalkOpportunities;
 function supportRobotDisplayName(robot) {
   ensureSupportRobotProfile(robot);
   return robot.robotName || "サポートロボット";
@@ -5095,6 +5369,12 @@ function grantFloorDevice(type, options = {}) {
   }
   selectedDeviceId = null;
   placementSelection = null;
+  if (type === "support_robot" && device.placed && device.isInitialSupportRobot) {
+    queueSupportRobotTalkFlag("initial_support_robot_placed", {
+      robotId: device.id,
+      baseId: currentBase().id
+    }, device.id);
+  }
   return true;
 }
 
@@ -6791,7 +7071,6 @@ function formatCommsText(template = "", context = {}) {
 }
 
 function commsDedupeContextKey(trigger, context = {}) {
-  if (trigger === "resource_low") return String(context.resource || "resource");
   if (trigger === "plant_resource_shortage") return plantingShortageReason(context);
   return "";
 }
@@ -8115,7 +8394,6 @@ function openAutomationPanelForEquipment(kind, id) {
     selectedLaborRobotId = item.id;
     switchTab("labor");
     renderLabor();
-    if (!hasAnySupportOS()) triggerComms("support_robot_os_required");
     return true;
   }
   if (item.type === "procurement_terminal") {
@@ -13131,6 +13409,7 @@ function requestExitToStart() {
   });
 }
 function renderHeader() {
+  refreshSupportRobotTalkOpportunities();
   const resourceProduction = syncResourceCapacities();
   document.getElementById("day-value").textContent = String(state.day).padStart(2, "0");
   const modeLimit = playModeLimit(state.mode);
@@ -13258,7 +13537,6 @@ function renderResourceAlert(type, amount, dailyDemand, productionPerDay = 0) {
   card.classList.toggle("critical", critical);
   card.classList.toggle("warning", warning);
   label.textContent = [critical ? "EMPTY" : warning ? "LOW" : "", productionLabel].filter(Boolean).join(" ");
-  if (critical || warning) triggerComms("resource_low", { resource: type });
 }
 
 function renderFarm() {
@@ -13338,14 +13616,21 @@ function renderFarm() {
     const productionEffect = productionResource
       ? `<span class="resource-production-fx resource-production-${productionResource}" aria-hidden="true"><span class="resource-production-halo"></span>${productionParticles}<span class="resource-production-label">${productionVisual ? `${productionVisual.resource === "water" ? "WATER" : "NUTRIENT"} +${formatResource(productionVisual.actual)}` : ""}</span></span>`
       : "";
+    const talkEntry = device.type === "support_robot" ? supportRobotTalkForRobot(device.id) : null;
+    const talkLabel = talkEntry
+      ? supportRobotDisplayName(device) + "と話す：" + (talkEntry.rule.markerLabel || "会話があります")
+      : "";
+    const talkMarker = talkEntry
+      ? '<span class="support-robot-talk-marker" data-support-robot-talk="' + escapeHtml(device.id) + '" aria-hidden="true" title="' + escapeHtml(talkLabel) + '"><span class="support-robot-talk-glyph">?</span></span>'
+      : "";
     const recoveryMode = device.type === "support_robot" ? supportRobotRecoveryMode(device) : "";
     const recoveryLabel = recoveryMode === "forced" ? "休養中" : recoveryMode === "charge" ? "充電休憩中" : "";
     const recoveryMarker = recoveryMode
       ? `<span class="support-robot-rest-marker ${recoveryMode === "forced" ? "forced-rest" : "charge-break"}" role="img" aria-label="${recoveryLabel}" title="${recoveryLabel}"><span aria-hidden="true">${recoveryMode === "forced" ? "Z" : "⚡"}</span></span>`
       : "";
-    return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${productionVisual ? "resource-production-active" : ""}"
+    return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${productionVisual ? "resource-production-active" : ""} ${talkEntry ? "has-robot-talk" : ""}"
       style="grid-column:${device.x + 1};grid-row:${device.y + 1};z-index:${20 + device.y}" data-select-device="${device.id}" data-drag-kind="device" data-drag-id="${device.id}">
-      <img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"><span class="device-field"></span>${productionEffect}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
+      <img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"><span class="device-field"></span>${productionEffect}${talkMarker}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
     </button>`;
   }).join("");
 
@@ -14246,6 +14531,12 @@ function bindEvents() {
       event.preventDefault();
       return;
     }
+    const supportRobotTalkMarker = event.target.closest("[data-support-robot-talk]");
+    if (supportRobotTalkMarker) {
+      event.preventDefault();
+      startSupportRobotTalk(supportRobotTalkMarker.dataset.supportRobotTalk);
+      return;
+    }
     if (event.target.closest("#news-history-button")) {
       event.preventDefault();
       openNewsHistory();
@@ -14521,6 +14812,7 @@ function bindEvents() {
       event.preventDefault();
       return;
     }
+    if (event.target.closest?.("[data-support-robot-talk]")) return;
     if (event.target.closest?.("[data-select-base]")) return;
     if (pointerDrag) return;
     if (equipmentMenu?.persistent) {
@@ -14855,6 +15147,10 @@ function bindEvents() {
   }, { passive: false });
 
   document.addEventListener("contextmenu", (event) => {
+    if (event.target.closest?.("[data-support-robot-talk]")) {
+      event.preventDefault();
+      return;
+    }
     if (isCommsBlocking() && !isCommsInteractionTarget(event.target)) {
       event.preventDefault();
       return;

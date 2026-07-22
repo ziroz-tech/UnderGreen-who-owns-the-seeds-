@@ -1449,6 +1449,101 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
   display: none !important;
 }
 
+.support-robot-talk-marker {
+  position: absolute;
+  bottom: calc(100% + 24px);
+  left: 50%;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 31px;
+  border: 2px solid #f5d65b;
+  border-radius: 50%;
+  color: #171303;
+  background: #f5d65b;
+  box-shadow:
+    0 0 0 2px rgba(4, 13, 10, .92),
+    0 0 18px rgba(245, 214, 91, .82);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+  animation: support-robot-talk-float 1.4s ease-in-out infinite alternate;
+}
+
+.support-robot-talk-marker::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  bottom: -7px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #f5d65b;
+  border-bottom: 2px solid #f5d65b;
+  background: #f5d65b;
+  transform: rotate(45deg);
+}
+
+.support-robot-talk-marker::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border: 1px solid rgba(245, 214, 91, .48);
+  border-radius: 50%;
+  animation: support-robot-talk-ring 1.4s ease-out infinite;
+}
+
+.support-robot-talk-glyph {
+  position: relative;
+  z-index: 2;
+  color: #171303;
+  font: 900 20px/1 Consolas, monospace;
+  letter-spacing: 0;
+}
+
+.support-robot-talk-marker:hover,
+.support-robot-talk-marker:focus-visible {
+  background: #fff2a6;
+  box-shadow:
+    0 0 0 3px rgba(4, 13, 10, .94),
+    0 0 25px rgba(245, 214, 91, 1);
+  outline: none;
+}
+
+@keyframes support-robot-talk-float {
+  from {
+    transform: translateX(-50%) translateY(0);
+  }
+
+  to {
+    transform: translateX(-50%) translateY(-7px);
+  }
+}
+
+@keyframes support-robot-talk-ring {
+  from {
+    opacity: .75;
+    transform: scale(.72);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.45);
+  }
+}
+
+html.low-spec-mode .support-robot-talk-marker,
+html.low-spec-mode .support-robot-talk-marker::before {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .support-robot-talk-marker,
+  .support-robot-talk-marker::before {
+    animation: none;
+  }
+}
 .clean-marker {
   --clean-marker-offset: -112px;
   --clean-line-length: 104px;
@@ -2185,6 +2280,7 @@ body.equipment-drag-active .facility-cell.covered-support_robot {
     filter: brightness(1.2);
   }
 }
+
 
 .effect-dots {
   position: absolute;
