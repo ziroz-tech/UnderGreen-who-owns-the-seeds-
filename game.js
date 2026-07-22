@@ -2499,6 +2499,8 @@ function createInitialState(mode = "day45") {
     storyChoices: {},
     timedModeWarningsSeen: {},
     openedTabs: { farm: true },
+    viewedMarkets: {},
+    viewedShopCategories: {},
     uiGuide: null,
     commsOpen: [],
     storyOpen: [],
@@ -3628,6 +3630,7 @@ function loadGame() {
     state.nextMarketForecastDay = Math.max(3, (Number(state.day) || 1) + 2);
   }
   ensureOpenedTabs();
+  ensureViewedSubsections();
   ensureUiGuideState();
   ownedBases();
   supportRobotRoster();
@@ -6510,6 +6513,53 @@ function ensureOpenedTabs() {
   state.openedTabs.farm = true;
 }
 
+function ensureViewedSubsections() {
+  if (!state.viewedMarkets || typeof state.viewedMarkets !== "object" || Array.isArray(state.viewedMarkets)) {
+    state.viewedMarkets = {};
+  }
+  if (!state.viewedShopCategories || typeof state.viewedShopCategories !== "object" || Array.isArray(state.viewedShopCategories)) {
+    state.viewedShopCategories = {};
+  }
+}
+
+function hasViewedMarket(marketId) {
+  ensureViewedSubsections();
+  return state.viewedMarkets[marketId] === true;
+}
+
+function hasViewedShopCategory(categoryId) {
+  ensureViewedSubsections();
+  return state.viewedShopCategories[categoryId] === true;
+}
+
+function markMarketViewed(marketId) {
+  ensureViewedSubsections();
+  if (!MARKETS[marketId] || !isMarketAvailable(marketId) || hasViewedMarket(marketId)) return false;
+  state.viewedMarkets[marketId] = true;
+  saveGame();
+  return true;
+}
+
+function markShopCategoryViewed(categoryId) {
+  ensureViewedSubsections();
+  if (!SHOP_CATEGORIES[categoryId] || !isShopCategoryAvailable(categoryId) || hasViewedShopCategory(categoryId)) return false;
+  state.viewedShopCategories[categoryId] = true;
+  saveGame();
+  return true;
+}
+
+function hasUnseenMarketEntries() {
+  return Object.keys(MARKETS).some((marketId) => isMarketAvailable(marketId) && !hasViewedMarket(marketId));
+}
+
+function hasUnseenShopCategories() {
+  return Object.keys(SHOP_CATEGORIES).some((categoryId) => isShopCategoryAvailable(categoryId) && !hasViewedShopCategory(categoryId));
+}
+
+function unseenEntryBadge() {
+  return '<i class="unseen-entry-badge" title="まだ見ていません" aria-hidden="true">!</i>';
+}
+
 function isTabAvailable(tabId) {
   if (tabId === "market") return Boolean(state.marketTabUnlocked);
   if (tabId === "shop") return Boolean(state.shopUnlocked);
@@ -6519,31 +6569,6 @@ function isTabAvailable(tabId) {
   return true;
 }
 
-function lockedTabCopy(tabId) {
-  const copies = {
-    market: {
-      hint: "初回収穫で接続",
-      detail: "闇市場は、作物を初めて収穫すると接続されます。"
-    },
-    shop: {
-      hint: "1株売却で接続",
-      detail: unlockHint("tab", "shop", "作物を1株以上売ると調達端末が開きます。")
-    },
-    labor: {
-      hint: "累計売上 " + formatNumber(AUTOMATION_CATEGORY_UNLOCK_REVENUE) + "C",
-      detail: "労務管理は、累計売上 " + formatNumber(AUTOMATION_CATEGORY_UNLOCK_REVENUE) + "Cで接続されます。"
-    },
-    schedule: {
-      hint: "調達端末と同時接続",
-      detail: "予定表は、調達端末の解放と同時に接続されます。"
-    },
-    broker: {
-      hint: "初期拠点を5マス占有",
-      detail: unlockHint("broker", "broker", "初期拠点の5マスを設備で占有すると接続されます。")
-    }
-  };
-  return copies[tabId] || { hint: "進行で接続", detail: "ゲームを進めると接続されます。" };
-}
 
 function markTabOpened(tabId) {
   ensureOpenedTabs();
@@ -6555,6 +6580,7 @@ function markTabOpened(tabId) {
 function updateTabIndicators() {
   if (!state) return;
   ensureOpenedTabs();
+  ensureViewedSubsections();
   const cleaningNeeded = ownedBases().some((base) => [...base.shelves, ...base.floorDevices].some(needsCleaning));
   document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
     const tabId = tab.dataset.tab;
@@ -6562,21 +6588,16 @@ function updateTabIndicators() {
     const tutorialLocked = isLaborTutorialActive() && tabId !== "labor";
     const locked = !available || tutorialLocked;
     const active = tab.classList.contains("active");
+    const nestedUnseen = tabId === "market"
+      ? hasUnseenMarketEntries()
+      : tabId === "shop" && hasUnseenShopCategories();
     tab.classList.toggle("locked", locked);
-    tab.classList.toggle("feature-locked", !available);
-    tab.removeAttribute("disabled");
+    tab.toggleAttribute("disabled", locked);
     tab.setAttribute("aria-disabled", String(locked));
-    if (!available) {
-      const copy = lockedTabCopy(tabId);
-      tab.dataset.lockHint = copy.hint;
-      tab.title = copy.detail;
-      tab.setAttribute("aria-label", tab.textContent.trim() + "。未接続。" + copy.detail);
-    } else {
-      delete tab.dataset.lockHint;
-      tab.removeAttribute("title");
-      tab.removeAttribute("aria-label");
-    }
-    tab.classList.toggle("new-tab-alert", available && !tutorialLocked && !active && !state.openedTabs[tabId]);
+    delete tab.dataset.lockHint;
+    tab.removeAttribute("title");
+    tab.removeAttribute("aria-label");
+    tab.classList.toggle("new-tab-alert", available && !tutorialLocked && !active && (!state.openedTabs[tabId] || nestedUnseen));
     if (tabId === "farm") tab.classList.toggle("needs-cleaning-tab", cleaningNeeded);
   });
 }
@@ -6589,7 +6610,7 @@ function switchTab(tabId) {
     return;
   }
   if (!isTabAvailable(tabId)) {
-    toast(lockedTabCopy(tabId).detail, "warning");
+    toast("Action unavailable right now.", "warning");
     rejectFeedback();
     return;
   }
@@ -6620,10 +6641,13 @@ function switchTab(tabId) {
     screen.classList.toggle("active", screen.id === `${tabId}-screen`);
   });
   markTabOpened(tabId);
+  if (tabId === "market") markMarketViewed(selectedMarket);
+  if (tabId === "shop") markShopCategoryViewed(selectedShopCategory);
   clearUiGuide(`tab:${tabId}`, { persist: false });
   updateTabIndicators();
   renderActiveScreen(tabId);
-  if (tabId === "schedule") triggerComms("schedule_opened");
+  if (tabId === "schedule") triggerComms("schedule_opened", { tabId: "schedule" });
+  if (tabId === "radio") triggerComms("radio_first_open", { tabId: "radio" });
   if (tabId === "labor") triggerComms("labor_first_open", { tabId: "labor" });
   if (previousTab !== tabId) {
     playSound("tab_switch", 0.18);
@@ -13272,6 +13296,7 @@ function cycleMarket(direction = 1) {
   if (!available.length) return;
   const currentIndex = Math.max(0, available.indexOf(selectedMarket));
   selectedMarket = available[(currentIndex + direction + available.length) % available.length];
+  markMarketViewed(selectedMarket);
   playSound("market_select", 0.2);
   hapticFeedback(8);
   renderMarkets(direction > 0 ? "next" : "prev");
@@ -13303,7 +13328,9 @@ function renderMarkets(direction = "") {
       ${Object.entries(MARKETS).map(([marketId, market]) => {
         const available = isMarketAvailable(marketId);
         const position = marketCarouselPosition(marketId);
-        return `<button class="market-card carousel-market ${position} ${selectedMarket === marketId ? "active" : ""} ${available ? "" : "locked"}" data-market="${marketId}" ${available ? "" : "disabled"}>
+        const unseen = available && !hasViewedMarket(marketId);
+        return `<button class="market-card carousel-market ${position} ${selectedMarket === marketId ? "active" : ""} ${available ? "" : "locked"} ${unseen ? "has-unseen-entry" : ""}" data-market="${marketId}" ${available ? "" : "disabled"} aria-label="${escapeHtml(market.name)}${unseen ? "（未確認）" : ""}">
+          ${unseen ? unseenEntryBadge() : ""}
           <img class="market-portrait" src="${market.portrait}" alt="${market.contact}">
           <span class="market-copy">
             <span class="market-contact">${market.contact}</span>
@@ -13324,7 +13351,9 @@ function renderMarkets(direction = "") {
     shortcuts.innerHTML = Object.entries(MARKETS).map(([marketId, market]) => {
       const available = isMarketAvailable(marketId);
       const active = selectedMarket === marketId;
-      return `<button class="market-shortcut ${active ? "active" : ""} ${available ? "" : "locked"}" data-market="${marketId}" type="button" ${available ? "" : "disabled"} aria-current="${active ? "true" : "false"}">
+      const unseen = available && !hasViewedMarket(marketId);
+      return `<button class="market-shortcut ${active ? "active" : ""} ${available ? "" : "locked"} ${unseen ? "has-unseen-entry" : ""}" data-market="${marketId}" type="button" ${available ? "" : "disabled"} aria-current="${active ? "true" : "false"}" aria-label="${escapeHtml(market.name)}${unseen ? "（未確認）" : ""}">
+        ${unseen ? unseenEntryBadge() : ""}
         <img src="${market.portrait}" alt="" loading="lazy" decoding="async">
         <span><strong>${market.name}</strong>${available ? "" : "<small>ROUTE LOCKED</small>"}</span>
       </button>`;
@@ -13489,6 +13518,7 @@ function cycleShopCategory(direction = 1) {
   if (!ids.length) return;
   const currentIndex = Math.max(0, ids.indexOf(selectedShopCategory));
   selectedShopCategory = ids[(currentIndex + direction + ids.length) % ids.length];
+  markShopCategoryViewed(selectedShopCategory);
   playSound("tab_switch", 0.12);
   hapticFeedback(6);
   renderShop(direction > 0 ? "next" : "prev");
@@ -13580,10 +13610,12 @@ function renderShop(direction = "") {
           const entry = SHOP_CATEGORIES[categoryId];
           const position = shopCategoryCarouselPosition(categoryId);
           const available = isShopCategoryAvailable(categoryId);
+          const unseen = available && !hasViewedShopCategory(categoryId);
           const subtitle = available
             ? entry.subtitle
             : `累計売上 ₡${formatNumber(AUTOMATION_CATEGORY_UNLOCK_REVENUE)}で接続`;
-          return `<button class="shop-category-card ${position} ${selectedShopCategory === categoryId ? "active" : ""} ${available ? "" : "locked"}" data-shop-category="${categoryId}" type="button" aria-disabled="${available ? "false" : "true"}">
+          return `<button class="shop-category-card ${position} ${selectedShopCategory === categoryId ? "active" : ""} ${available ? "" : "locked"} ${unseen ? "has-unseen-entry" : ""}" data-shop-category="${categoryId}" type="button" aria-disabled="${available ? "false" : "true"}" aria-label="${escapeHtml(entry.label)}${unseen ? "（未確認）" : ""}">
+            ${unseen ? unseenEntryBadge() : ""}
             <span class="shop-category-kicker">PROCUREMENT // ${String(index + 1).padStart(2, "0")}</span>
             <strong>${entry.label}</strong>
             <small>${subtitle}</small>
@@ -14199,6 +14231,7 @@ function bindEvents() {
         return;
       }
       selectedMarket = market.dataset.market;
+      markMarketViewed(selectedMarket);
       playSound("market_select", 0.18);
       hapticFeedback(8);
       renderMarkets();
@@ -14218,12 +14251,15 @@ function bindEvents() {
         rejectFeedback({ shake: false });
         return;
       }
+      const newlyViewed = SHOP_CATEGORIES[categoryId] && markShopCategoryViewed(categoryId);
       if (SHOP_CATEGORIES[categoryId] && selectedShopCategory !== categoryId) {
         const direction = shopCategoryCycleDirection(categoryId);
         selectedShopCategory = categoryId;
         playSound("tab_switch", 0.12);
         hapticFeedback(6);
         renderShop(direction);
+      } else if (newlyViewed) {
+        renderShop();
       }
       return;
     }
