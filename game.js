@@ -248,6 +248,11 @@ let startTitleTapCount = 0;
 let startTitleTapAt = 0;
 let startLaunchPending = false;
 const COMMS_DEDUPE_TRIGGERS = new Set(["plant_resource_shortage", "resource_low"]);
+const LABOR_TUTORIAL_EVENT_TRIGGERS = new Set([
+  "labor_first_open",
+  "labor_tutorial_cleaning_completed",
+  "labor_tutorial_completed"
+]);
 const GAME_TABS = ["farm", "market", "shop", "labor", "schedule", "broker", "radio", "info"];
 const GAME_TAB_SHORTCUTS = {
   "1": "farm",
@@ -2259,7 +2264,9 @@ function createDefaultLaborTutorialState() {
     conditionNodeId: "",
     restNodeId: "",
     completionQueued: false,
-    pausedBefore: false
+    pausedBefore: false,
+    deferredStories: [],
+    deferredComms: []
   };
 }
 
@@ -2297,7 +2304,9 @@ function ensureLaborTutorialState() {
     conditionNodeId: typeof source.conditionNodeId === "string" ? source.conditionNodeId : "",
     restNodeId: typeof source.restNodeId === "string" ? source.restNodeId : "",
     completionQueued: Boolean(source.completionQueued),
-    pausedBefore: Boolean(source.pausedBefore)
+    pausedBefore: Boolean(source.pausedBefore),
+    deferredStories: Array.isArray(source.deferredStories) ? source.deferredStories : [],
+    deferredComms: Array.isArray(source.deferredComms) ? source.deferredComms : []
   };
   if (tutorial.completed) tutorial.active = false;
   if (state.debugMode && tutorial.active) {
@@ -2305,6 +2314,8 @@ function ensureLaborTutorialState() {
     tutorial.active = false;
     tutorial.phase = "idle";
     tutorial.completionQueued = false;
+  } else if (tutorial.active) {
+    state.paused = true;
   }
   state.laborTutorial = tutorial;
   return tutorial;
@@ -2354,6 +2365,8 @@ function startLaborTutorial() {
     pausedBefore: Boolean(state.paused)
   };
   state.paused = true;
+  lastTickAt = Date.now();
+  suspendNonTutorialEventsForLaborTutorial();
   ensureOpenedTabs();
   state.openedTabs.labor = true;
   setActiveTabSilently("labor");
@@ -2370,6 +2383,7 @@ function continueAdvancedLaborTutorial() {
   tutorial.phase = "disconnect_cleaning";
   tutorial.completionQueued = false;
   state.paused = true;
+  lastTickAt = Date.now();
   syncLaborTutorialLock();
   saveGame();
   render();
@@ -2388,6 +2402,8 @@ function completeLaborTutorial() {
     completionQueued: false
   };
   state.paused = pausedBefore;
+  lastTickAt = Date.now();
+  restoreDeferredLaborTutorialEvents();
   syncLaborTutorialLock();
   saveGame();
   render();
@@ -3659,6 +3675,7 @@ function loadGame() {
   ensureSupportRobotGrant();
   restoreStoryState();
   restoreCommsState();
+  if (isLaborTutorialActive()) suspendNonTutorialEventsForLaborTutorial();
   if (!isMarketAvailable(selectedMarket)) selectedMarket = "lower";
   const hasLegacyImmediateEvent = state.event && !state.marketEventQueue.length;
   if (state.debugMode) updateMarketForDay();
@@ -6560,7 +6577,13 @@ function unseenEntryBadge() {
   return '<i class="unseen-entry-badge" title="まだ見ていません" aria-hidden="true">!</i>';
 }
 
+function isOpeningFarmOnlyPhase() {
+  return Boolean(state && !state.debugMode && !LABOR_TUTORIAL_QA_MODE && !state.marketTabUnlocked);
+}
+
 function isTabAvailable(tabId) {
+  if (tabId === "farm") return true;
+  if (isOpeningFarmOnlyPhase()) return false;
   if (tabId === "market") return Boolean(state.marketTabUnlocked);
   if (tabId === "shop") return Boolean(state.shopUnlocked);
   if (tabId === "schedule") return Boolean(state.shopUnlocked);
@@ -6803,8 +6826,196 @@ function hasQueuedStory(event) {
   return [activeStory, ...pendingStories].some((entry) => entry?.event?.id === event?.id);
 }
 
+function isLaborTutorialEventTrigger(trigger = "") {
+  return LABOR_TUTORIAL_EVENT_TRIGGERS.has(String(trigger));
+}
+
+function shouldDeferEventForLaborTutorial(trigger = "") {
+  return isLaborTutorialActive() && !isLaborTutorialEventTrigger(trigger);
+}
+
+function cloneDeferredEventContext(context = {}) {
+  try {
+    return JSON.parse(JSON.stringify(context || {}));
+  } catch {
+    return {};
+  }
+}
+
+function deferredEventEntryKey(entry = {}) {
+  let contextKey = "";
+  try {
+    contextKey = JSON.stringify(entry.context || {});
+  } catch {
+    contextKey = "";
+  }
+  return String(entry.id || "") + "|" + contextKey;
+}
+
+function appendLaborTutorialDeferredEntries(target, entries = []) {
+  const keys = new Set(target.map(deferredEventEntryKey));
+  entries.forEach((entry) => {
+    if (!entry?.id) return;
+    const normalized = {
+      id: String(entry.id),
+      page: Math.max(0, Number(entry.page) || 0),
+      context: cloneDeferredEventContext(entry.context)
+    };
+    const key = deferredEventEntryKey(normalized);
+    if (keys.has(key)) return;
+    keys.add(key);
+    target.push(normalized);
+  });
+}
+
+function suspendNonTutorialEventsForLaborTutorial() {
+  if (!isLaborTutorialActive()) return false;
+  const tutorial = ensureLaborTutorialState();
+  const stories = [activeStory, ...pendingStories].filter(Boolean);
+  const tutorialStories = stories.filter((entry) => isLaborTutorialEventTrigger(entry?.event?.trigger));
+  appendLaborTutorialDeferredEntries(
+    tutorial.deferredStories,
+    stories
+      .filter((entry) => !isLaborTutorialEventTrigger(entry?.event?.trigger))
+      .map(serializeStoryEntry)
+      .filter(Boolean)
+  );
+  activeStory = tutorialStories.shift() || null;
+  pendingStories = tutorialStories;
+
+  const comms = [activeComms, ...pendingComms].filter(Boolean);
+  const tutorialComms = comms.filter((entry) => isLaborTutorialEventTrigger(entry?.event?.trigger));
+  appendLaborTutorialDeferredEntries(
+    tutorial.deferredComms,
+    comms
+      .filter((entry) => !isLaborTutorialEventTrigger(entry?.event?.trigger))
+      .map(serializeCommsEntry)
+      .filter(Boolean)
+  );
+  activeComms = tutorialComms.shift() || null;
+  pendingComms = tutorialComms;
+
+  persistStoryState();
+  persistCommsState();
+  renderStoryComms();
+  renderComms();
+  return true;
+}
+
+function deferStoryEventsForLaborTutorial(trigger, context = {}) {
+  if (!shouldDeferEventForLaborTutorial(trigger)) return false;
+  const tutorial = ensureLaborTutorialState();
+  const deferredIds = new Set(tutorial.deferredStories.map((entry) => entry?.id));
+  const events = STORY_EVENTS
+    .filter((entry) => storyEventMatches(entry, trigger, context))
+    .filter((event) => !hasQueuedStory(event) && !deferredIds.has(event.id));
+  if (!events.length) return false;
+  state.storySeen ||= {};
+  const capturedAt = Date.now();
+  const serialized = events.map((event) => {
+    state.storySeen[event.id] = capturedAt;
+    return { id: event.id, page: 0, context };
+  });
+  appendLaborTutorialDeferredEntries(tutorial.deferredStories, serialized);
+  return true;
+}
+
+function deferCommsEventsForLaborTutorial(trigger, context = {}) {
+  if (!shouldDeferEventForLaborTutorial(trigger)) return false;
+  const tutorial = ensureLaborTutorialState();
+  const deferredKeys = new Set(tutorial.deferredComms.map(deferredEventEntryKey));
+  const events = COMM_EVENTS
+    .filter((entry) => commsEventMatches(entry, trigger, context))
+    .filter((event) => !hasMatchingQueuedComms(event, context))
+    .filter((event) => !deferredKeys.has(deferredEventEntryKey({ id: event.id, context })));
+  if (!events.length) return false;
+  state.commsSeen ||= {};
+  const capturedAt = Date.now();
+  const serialized = events.map((event) => {
+    state.commsSeen[event.id] = capturedAt;
+    return { id: event.id, page: 0, context };
+  });
+  appendLaborTutorialDeferredEntries(tutorial.deferredComms, serialized);
+  return true;
+}
+
+function deferCommsTriggerForLaborTutorial(trigger, context = {}, options = {}) {
+  if (!shouldDeferEventForLaborTutorial(trigger)) return false;
+  const storyDeferred = !options.skipStory && deferStoryEventsForLaborTutorial(trigger, context);
+  const deferred = storyDeferred || deferCommsEventsForLaborTutorial(trigger, context);
+  if (deferred) saveGame();
+  return deferred;
+}
+
+function activatePendingCommsAfterStories() {
+  if (activeStory || activeComms || !pendingComms.length) return false;
+  activeComms = pendingComms.shift() || null;
+  persistCommsState();
+  renderComms();
+  return Boolean(activeComms);
+}
+
+function restoreDeferredLaborTutorialEvents() {
+  if (!state) return false;
+  const tutorial = ensureLaborTutorialState();
+  const deferredStories = tutorial.deferredStories.splice(0);
+  const deferredComms = tutorial.deferredComms.splice(0);
+
+  const restoredStories = deferredStories
+    .map((entry) => {
+      const event = STORY_EVENTS.find((candidate) => candidate.id === entry.id);
+      return event ? { event, page: Math.max(0, Number(entry.page) || 0), context: entry.context || {} } : null;
+    })
+    .filter(Boolean)
+    .filter(storyEntryStillValid)
+    .filter((entry) => !hasQueuedStory(entry.event));
+  if (activeStory) {
+    pendingStories.push(...restoredStories);
+  } else {
+    activeStory = restoredStories.shift() || null;
+    pendingStories.push(...restoredStories);
+  }
+
+  const queuedCommsKeys = new Set(
+    [activeComms, ...pendingComms]
+      .filter(Boolean)
+      .map(serializeCommsEntry)
+      .map(deferredEventEntryKey)
+  );
+  const restoredComms = deferredComms
+    .map((entry) => {
+      const event = COMM_EVENTS.find((candidate) => candidate.id === entry.id);
+      return event ? { event, page: Math.max(0, Number(entry.page) || 0), context: entry.context || {} } : null;
+    })
+    .filter(Boolean)
+    .filter(commsEntryStillValid)
+    .filter((entry) => {
+      const key = deferredEventEntryKey(serializeCommsEntry(entry));
+      if (queuedCommsKeys.has(key)) return false;
+      queuedCommsKeys.add(key);
+      return true;
+    });
+  if (activeStory || activeComms) {
+    pendingComms.push(...restoredComms);
+  } else {
+    activeComms = restoredComms.shift() || null;
+    pendingComms.push(...restoredComms);
+  }
+
+  persistStoryState();
+  persistCommsState();
+  renderStoryComms();
+  renderComms();
+  return Boolean(activeStory || activeComms || pendingStories.length || pendingComms.length);
+}
+
 function triggerStoryEvent(trigger, context = {}) {
   if (!state || state.ended || state.debugMode) return false;
+  if (shouldDeferEventForLaborTutorial(trigger)) {
+    const deferred = deferStoryEventsForLaborTutorial(trigger, context);
+    if (deferred) saveGame();
+    return deferred;
+  }
   const events = STORY_EVENTS
     .filter((entry) => storyEventMatches(entry, trigger, context))
     .filter((event) => !hasQueuedStory(event));
@@ -7287,7 +7498,9 @@ function closeStoryComms(choiceId = "close") {
   persistStoryState();
   renderStoryComms();
   applyStoryEffects(closed.event, choiceId, closed.context || {});
+  if (!activeStory) activatePendingCommsAfterStories();
   if (activeStory) playCommsSound(activeStory, "comms_next");
+  else if (activeComms) playCommsSound(activeComms, "comms_next");
   saveGame();
   completePendingDay30ResultIfReady();
 }
@@ -7306,7 +7519,10 @@ function clearStoryForTrigger(trigger) {
 
 function triggerComms(trigger, context = {}, options = {}) {
   if (!state || state.ended || state.debugMode) return false;
-  if (!options.skipStory && triggerStoryEvent(trigger, context)) return;
+  if (shouldDeferEventForLaborTutorial(trigger)) {
+    return deferCommsTriggerForLaborTutorial(trigger, context, options);
+  }
+  if (!options.skipStory && triggerStoryEvent(trigger, context)) return true;
   const events = COMM_EVENTS
     .filter((entry) => commsEventMatches(entry, trigger, context))
     .filter((event) => !hasMatchingQueuedComms(event, context));
@@ -7388,6 +7604,7 @@ function isRadarSimulationRunning() {
     && !state.debugMode
     && state.timeUnlocked
     && !state.paused
+    && !isLaborTutorialActive()
     && !state.ended
     && !startScreenOpen
     && !settingsPanelOpen
@@ -10954,7 +11171,7 @@ function realtimeTick() {
     }
     return;
   }
-  if (state.ended || state.paused || state.radar?.tutorialActive) {
+  if (state.ended || state.paused || isLaborTutorialActive() || state.radar?.tutorialActive) {
     if (now - lastRenderAt >= Math.max(500, runtimeRenderIntervalMs())) {
       renderRuntime();
       lastRenderAt = now;
@@ -14746,7 +14963,7 @@ function launchLaborTutorialQaMode() {
   clearSessionInteractionState();
   startScreenOpen = false;
   pausedBeforeStartScreen = false;
-  state.paused = false;
+  state.paused = isLaborTutorialActive();
   lastTickAt = Date.now();
   document.body.classList.remove("start-screen-open");
   document.body.classList.add("labor-tutorial-qa");
