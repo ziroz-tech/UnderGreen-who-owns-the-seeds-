@@ -24,7 +24,7 @@
   // Trial feature: set this to false, or add ?laborassist=off, to omit the
   // natural-language summary without touching game logic.
   const LABOR_ASSIST_EXPERIMENT_DEFAULT_ENABLED = true;
-  const LABOR_ASSIST_GUIDE_ENABLED = false;
+  const LABOR_ASSIST_GUIDE_ENABLED = true;
   const LABOR_ASSIST_EXPERIMENT_ENABLED = (() => {
     try {
       const override = new URLSearchParams(window.location.search).get("laborassist");
@@ -40,6 +40,45 @@
     CONNECT: "connect",
     REVIEW: "review"
   });
+  const LABOR_TUTORIAL_PHASES = Object.freeze({
+    PLACE_CLEANING: "place_cleaning",
+    CONNECT_CLEANING: "connect_cleaning",
+    CLEANING_REVIEW: "cleaning_review",
+    DISCONNECT_CLEANING: "disconnect_cleaning",
+    PLACE_BRANCH: "place_branch",
+    PLACE_CONDITION: "place_condition",
+    CONFIGURE_CONDITION: "configure_condition",
+    PLACE_REST: "place_rest",
+    CONNECT_EVENT_BRANCH: "connect_event_branch",
+    CONNECT_CONDITION_BRANCH: "connect_condition_branch",
+    CONNECT_TRUE_REST: "connect_true_rest",
+    CONNECT_FALSE_CLEANING: "connect_false_cleaning",
+    ADVANCED_REVIEW: "advanced_review"
+  });
+  const LABOR_TUTORIAL_BASIC_SEQUENCE = Object.freeze([
+    LABOR_TUTORIAL_PHASES.PLACE_CLEANING,
+    LABOR_TUTORIAL_PHASES.CONNECT_CLEANING
+  ]);
+  const LABOR_TUTORIAL_ADVANCED_SEQUENCE = Object.freeze([
+    LABOR_TUTORIAL_PHASES.DISCONNECT_CLEANING,
+    LABOR_TUTORIAL_PHASES.PLACE_BRANCH,
+    LABOR_TUTORIAL_PHASES.PLACE_CONDITION,
+    LABOR_TUTORIAL_PHASES.CONFIGURE_CONDITION,
+    LABOR_TUTORIAL_PHASES.PLACE_REST,
+    LABOR_TUTORIAL_PHASES.CONNECT_EVENT_BRANCH,
+    LABOR_TUTORIAL_PHASES.CONNECT_CONDITION_BRANCH,
+    LABOR_TUTORIAL_PHASES.CONNECT_TRUE_REST,
+    LABOR_TUTORIAL_PHASES.CONNECT_FALSE_CLEANING
+  ]);
+
+  function laborTutorialActionSequence(tutorial) {
+    if (!tutorial) return LABOR_TUTORIAL_BASIC_SEQUENCE;
+    if (LABOR_TUTORIAL_BASIC_SEQUENCE.includes(tutorial.phase)
+      || tutorial.phase === LABOR_TUTORIAL_PHASES.CLEANING_REVIEW) {
+      return LABOR_TUTORIAL_BASIC_SEQUENCE;
+    }
+    return LABOR_TUTORIAL_ADVANCED_SEQUENCE;
+  }
 
   const LABOR_NODE_DEFINITIONS = Object.freeze({
     event: { label: "稼働サイクル開始", kicker: "EVENT", icon: "⚡", description: "稼働中、ここからパルスが流れます。", category: "event", task: "" },
@@ -112,7 +151,7 @@
   });
 
   const LABOR_PALETTE_GROUPS = Object.freeze([
-    { label: "TASK", types: ["harvest", "care", "ship", "plant", "procure", "cleaning", "rest"] },
+    { label: "TASK", types: ["cleaning", "harvest", "care", "ship", "plant", "procure", "rest"] },
     { label: "FLOW CONTROL", types: ["branch", "sequence", "flipflop", "daily", "every", "random"] },
     { label: "CONDITION", types: ["condition"] }
   ]);
@@ -199,7 +238,7 @@
   const laborAssistGuide = {
     active: false,
     phase: "",
-    targetType: "harvest",
+    targetType: "cleaning",
     targetNodeId: "",
     manual: false
   };
@@ -438,7 +477,7 @@
   }
 
   function showLaborTooltip(target, { pinned = false } = {}) {
-    if (!laborTooltipsEnabled || !target?.isConnected || !target.closest?.("#labor-screen")) return;
+    if (!laborTooltipsAreActive() || !target?.isConnected || !target.closest?.("#labor-screen")) return;
     const body = String(target.dataset.laborTooltip || "");
     if (!body) return;
     const tooltip = ensureLaborTooltip();
@@ -487,16 +526,27 @@
   }
 
   function laborTooltipTargetFromEvent(event) {
-    if (!laborTooltipsEnabled) return null;
+    if (!laborTooltipsAreActive()) return null;
     const target = event.target.closest?.("[data-labor-tooltip]");
     return target?.closest?.("#labor-screen") ? target : null;
   }
+
+  function laborTooltipsAreActive() {
+    return laborTooltipsEnabled && !activeRequiredLaborTutorial();
+  }
+
   function updateLaborTooltipToggleControl() {
     const input = document.querySelector("[data-labor-tooltip-toggle]");
     const stateLabel = document.querySelector("[data-labor-tooltip-state]");
-    if (input) input.checked = laborTooltipsEnabled;
-    if (stateLabel) stateLabel.textContent = laborTooltipsEnabled ? "ON" : "OFF";
-    document.getElementById("labor-screen")?.classList.toggle("tooltips-disabled", !laborTooltipsEnabled);
+    const tutorialActive = Boolean(activeRequiredLaborTutorial());
+    const tooltipsActive = laborTooltipsAreActive();
+    if (!tooltipsActive) hideLaborTooltip(true);
+    if (input) {
+      input.checked = tooltipsActive;
+      input.disabled = tutorialActive;
+    }
+    if (stateLabel) stateLabel.textContent = tooltipsActive ? "ON" : "OFF";
+    document.getElementById("labor-screen")?.classList.toggle("tooltips-disabled", !tooltipsActive);
   }
 
   function setLaborTooltipsEnabled(enabled, { persist = true } = {}) {
@@ -851,7 +901,7 @@
 
     list.innerHTML = LABOR_BLUEPRINT_PACKAGES.map((packageDefinition) => {
       const status = laborBlueprintPackageStatus(packageDefinition);
-      const disabled = !record || !status.selectable;
+      const disabled = !record || !status.selectable || Boolean(activeRequiredLaborTutorial());
       let availability = status.activeKeys.size + " NODES READY";
       if (!record) availability = "NO UNIT";
       else if (status.coreLocks.length) availability = status.coreLocks[0].label + " LOCKED";
@@ -866,6 +916,7 @@
     }).join("");
   }
   function addLaborBlueprintPackage(packageId, dropPosition = null) {
+    if (activeRequiredLaborTutorial()) return;
     const record = selectedLaborRobotRecord();
     const packageDefinition = laborBlueprintPackageById(packageId);
     const status = laborBlueprintPackageStatus(packageDefinition);
@@ -1009,17 +1060,29 @@
     };
   }
 
+  function activeRequiredLaborTutorial() {
+    const currentState = typeof state === "undefined" ? null : state;
+    const tutorial = currentState?.laborTutorial;
+    return tutorial?.active && !currentState?.debugMode ? tutorial : null;
+  }
+
   function selectedLaborRobotRecord() {
     const roster = supportRobotRoster();
     if (!roster.length) {
       selectedLaborRobotId = "";
       return null;
     }
-    let record = roster.find(({ robot }) => robot.id === selectedLaborRobotId);
+    const tutorial = activeRequiredLaborTutorial();
+    let record = tutorial
+      ? roster.find(({ robot }) => robot.id === tutorial.targetRobotId)
+      : roster.find(({ robot }) => robot.id === selectedLaborRobotId);
     if (!record) {
-      record = roster[0];
-      selectedLaborRobotId = record.robot.id;
+      record = tutorial
+        ? (roster.find(({ robot }) => robot.isInitialSupportRobot) || roster[0])
+        : roster[0];
+      if (tutorial) tutorial.targetRobotId = record.robot.id;
     }
+    selectedLaborRobotId = record.robot.id;
     ensureSupportRobotProfile(record.robot);
     return record;
   }
@@ -1079,6 +1142,95 @@
     return matching;
   }
 
+  function laborTutorialExpectedNodeType(tutorial) {
+    if (!tutorial) return "";
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_CLEANING) return "cleaning";
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_BRANCH) return "branch";
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_CONDITION) return "condition";
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_REST) return "rest";
+    return "";
+  }
+
+  function laborTutorialPaletteGroup(tutorial) {
+    const type = laborTutorialExpectedNodeType(tutorial);
+    if (type === "branch") return "FLOW CONTROL";
+    if (type === "condition") return "CONDITION";
+    if (type) return "TASK";
+    return "";
+  }
+
+  function laborTutorialNode(blueprint, tutorial, role) {
+    if (!blueprint || !tutorial) return null;
+    const idByRole = {
+      cleaning: tutorial.targetNodeId,
+      branch: tutorial.branchNodeId,
+      condition: tutorial.conditionNodeId,
+      rest: tutorial.restNodeId
+    };
+    const expectedType = role === "cleaning" ? "cleaning" : role;
+    const node = supportBlueprintNodeById(blueprint, idByRole[role]);
+    return node?.type === expectedType ? node : null;
+  }
+
+  function laborTutorialExpectedConnection(tutorial, blueprint) {
+    if (!tutorial || !blueprint) return null;
+    const root = supportBlueprintNodeById(blueprint, blueprint.rootId);
+    const cleaning = laborTutorialNode(blueprint, tutorial, "cleaning");
+    const branch = laborTutorialNode(blueprint, tutorial, "branch");
+    const condition = laborTutorialNode(blueprint, tutorial, "condition");
+    const rest = laborTutorialNode(blueprint, tutorial, "rest");
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.CONNECT_CLEANING && root && cleaning) {
+      return { fromId: root.id, fromPin: "out", toId: cleaning.id, toPin: "in", nextPhase: LABOR_TUTORIAL_PHASES.CLEANING_REVIEW };
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.CONNECT_EVENT_BRANCH && root && branch) {
+      return { fromId: root.id, fromPin: "out", toId: branch.id, toPin: "in", nextPhase: LABOR_TUTORIAL_PHASES.CONNECT_CONDITION_BRANCH };
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.CONNECT_CONDITION_BRANCH && condition && branch) {
+      return { fromId: condition.id, fromPin: "value", toId: branch.id, toPin: "condition", nextPhase: LABOR_TUTORIAL_PHASES.CONNECT_TRUE_REST };
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.CONNECT_TRUE_REST && branch && rest) {
+      return { fromId: branch.id, fromPin: "true", toId: rest.id, toPin: "in", nextPhase: LABOR_TUTORIAL_PHASES.CONNECT_FALSE_CLEANING };
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.CONNECT_FALSE_CLEANING && branch && cleaning) {
+      return { fromId: branch.id, fromPin: "false", toId: cleaning.id, toPin: "in", nextPhase: LABOR_TUTORIAL_PHASES.ADVANCED_REVIEW };
+    }
+    return null;
+  }
+
+  function laborTutorialConditionIsConfigured(blueprint, tutorial) {
+    const condition = laborTutorialNode(blueprint, tutorial, "condition");
+    return Boolean(condition
+      && condition.conditionSource === "energy"
+      && condition.operator === "gte"
+      && Number(condition.value) === 50);
+  }
+
+  function laborTutorialRegisterPlacedNode(tutorial, type, nodeId) {
+    if (!tutorial) return false;
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_CLEANING && type === "cleaning") {
+      tutorial.targetNodeId = nodeId;
+      tutorial.phase = LABOR_TUTORIAL_PHASES.CONNECT_CLEANING;
+      laborAssistGuide.targetNodeId = nodeId;
+      return true;
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_BRANCH && type === "branch") {
+      tutorial.branchNodeId = nodeId;
+      tutorial.phase = LABOR_TUTORIAL_PHASES.PLACE_CONDITION;
+      return true;
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_CONDITION && type === "condition") {
+      tutorial.conditionNodeId = nodeId;
+      tutorial.phase = LABOR_TUTORIAL_PHASES.CONFIGURE_CONDITION;
+      return true;
+    }
+    if (tutorial.phase === LABOR_TUTORIAL_PHASES.PLACE_REST && type === "rest") {
+      tutorial.restNodeId = nodeId;
+      tutorial.phase = LABOR_TUTORIAL_PHASES.CONNECT_EVENT_BRANCH;
+      return true;
+    }
+    return false;
+  }
+
   function laborAssistGuidePhase(record) {
     const blueprint = record?.robot?.supportBlueprint;
     if (!blueprint) return LABOR_ASSIST_GUIDE_STEPS.PLACE;
@@ -1090,15 +1242,38 @@
     return LABOR_ASSIST_GUIDE_STEPS.CONNECT;
   }
 
+  function syncLaborAssistGuideFromTutorial(record) {
+    const tutorial = activeRequiredLaborTutorial();
+    if (!tutorial) {
+      if (!laborAssistGuide.manual) {
+        laborAssistGuide.active = false;
+        laborAssistGuide.phase = "";
+        laborAssistGuide.targetNodeId = "";
+      }
+      return null;
+    }
+    laborAssistGuide.active = true;
+    laborAssistGuide.manual = false;
+    laborAssistGuide.targetType = laborTutorialExpectedNodeType(tutorial) || "cleaning";
+    laborAssistGuide.targetNodeId = tutorial.targetNodeId || "";
+    laborAssistGuide.phase = tutorial.phase;
+    return tutorial;
+  }
+
   function laborAssistShouldRequireManualConnection(type) {
-    return LABOR_ASSIST_EXPERIMENT_ENABLED
-      && LABOR_ASSIST_GUIDE_ENABLED
-      && laborAssistGuide.active
+    const requiredTutorial = activeRequiredLaborTutorial();
+    if (requiredTutorial) return laborTutorialExpectedNodeType(requiredTutorial) === type;
+    return Boolean(LABOR_ASSIST_EXPERIMENT_ENABLED && LABOR_ASSIST_GUIDE_ENABLED && laborAssistGuide.active)
       && laborAssistGuide.phase === LABOR_ASSIST_GUIDE_STEPS.PLACE
       && type === laborAssistGuide.targetType;
   }
 
   function laborAssistRememberPlacedNode(type, nodeId) {
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial) {
+      laborTutorialRegisterPlacedNode(tutorial, type, nodeId);
+      return;
+    }
     if (!LABOR_ASSIST_EXPERIMENT_ENABLED || !LABOR_ASSIST_GUIDE_ENABLED || !laborAssistGuide.active) return;
     if (type === laborAssistGuide.targetType) laborAssistGuide.targetNodeId = nodeId;
   }
@@ -1295,7 +1470,8 @@
     const blueprintConsole = document.querySelector("#labor-screen .blueprint-console");
     const toolbar = blueprintConsole?.querySelector(".blueprint-toolbar");
     const existing = blueprintConsole?.querySelector("[data-labor-assist-experiment]");
-    if (!LABOR_ASSIST_EXPERIMENT_ENABLED) {
+    const tutorialActive = Boolean(activeRequiredLaborTutorial());
+    if (!LABOR_ASSIST_EXPERIMENT_ENABLED && !tutorialActive) {
       existing?.remove();
       blueprintConsole?.classList.remove("labor-assist-enabled");
       return null;
@@ -1308,6 +1484,15 @@
     surface.className = "labor-assist-surface guide-inactive";
     surface.dataset.laborAssistExperiment = "";
     surface.innerHTML = [
+      '<div class="labor-quick-guide" data-labor-quick-guide hidden>',
+        '<div class="labor-guide-heading">',
+          '<div><span class="labor-assist-code">GUIDED LINK // INPUT LOCK</span><strong data-labor-guide-title></strong></div>',
+          '<small data-labor-guide-step></small>',
+        '</div>',
+        '<div class="labor-guide-progress" data-labor-guide-progress></div>',
+        '<p data-labor-guide-copy></p>',
+        '<div class="labor-guide-actions"><small>訓練完了まで労務管理以外の操作は停止します。</small></div>',
+      '</div>',
       '<div class="labor-program-summary" data-labor-program-panel aria-live="polite">',
         '<div class="labor-program-summary-heading">',
           '<div><span class="labor-assist-code">PROGRAM SUMMARY</span><strong>この個体への指示</strong></div>',
@@ -1319,7 +1504,6 @@
     toolbar.insertAdjacentElement("afterend", surface);
     return surface;
   }
-
   function clearLaborAssistHighlights() {
     document.querySelectorAll(".labor-assist-focus").forEach((element) => {
       element.classList.remove("labor-assist-focus");
@@ -1330,6 +1514,37 @@
     clearLaborAssistHighlights();
     if (!laborAssistGuide.active || !record) return;
     const blueprint = record.robot.supportBlueprint;
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial) {
+      const expectedType = laborTutorialExpectedNodeType(tutorial);
+      if (expectedType) {
+        const addButton = [...document.querySelectorAll("[data-blueprint-add]")]
+          .find((element) => element.dataset.blueprintAdd === expectedType);
+        (addButton?.closest(".blueprint-palette-entry") || addButton)?.classList.add("labor-assist-focus");
+        return;
+      }
+      if (tutorial.phase === LABOR_TUTORIAL_PHASES.DISCONNECT_CLEANING) {
+        const cleaning = laborTutorialNode(blueprint, tutorial, "cleaning");
+        laborBlueprintNodeElement(cleaning?.id)?.classList.add("labor-assist-focus");
+        laborBlueprintPinElement(cleaning?.id, "input", "in")?.classList.add("labor-assist-focus");
+        return;
+      }
+      if (tutorial.phase === LABOR_TUTORIAL_PHASES.CONFIGURE_CONDITION) {
+        const condition = laborTutorialNode(blueprint, tutorial, "condition");
+        laborBlueprintNodeElement(condition?.id)?.classList.add("labor-assist-focus");
+        return;
+      }
+      const expectedConnection = laborTutorialExpectedConnection(tutorial, blueprint);
+      if (expectedConnection) {
+        laborBlueprintNodeElement(expectedConnection.fromId)?.classList.add("labor-assist-focus");
+        laborBlueprintNodeElement(expectedConnection.toId)?.classList.add("labor-assist-focus");
+        laborBlueprintPinElement(expectedConnection.fromId, "output", expectedConnection.fromPin)?.classList.add("labor-assist-focus");
+        laborBlueprintPinElement(expectedConnection.toId, "input", expectedConnection.toPin)?.classList.add("labor-assist-focus");
+        return;
+      }
+      document.querySelector("[data-labor-program-panel]")?.classList.add("labor-assist-focus");
+      return;
+    }
     if (laborAssistGuide.phase === LABOR_ASSIST_GUIDE_STEPS.PLACE) {
       const addButton = [...document.querySelectorAll("[data-blueprint-add]")]
         .find((element) => element.dataset.blueprintAdd === laborAssistGuide.targetType);
@@ -1351,6 +1566,61 @@
   }
 
   function laborAssistGuideCopy(record, phase) {
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial) {
+      const tutorialCopy = {
+        [LABOR_TUTORIAL_PHASES.PLACE_CLEANING]: {
+          title: "清掃ノードを置く",
+          copy: "NODE LIBRARYの作業リスト先頭にある「清掃」を、編集領域へ置いてください。"
+        },
+        [LABOR_TUTORIAL_PHASES.CONNECT_CLEANING]: {
+          title: "まず清掃へつなぐ",
+          copy: "「作業開始」の開始端子から「清掃」の実行端子までドラッグしてください。"
+        },
+        [LABOR_TUTORIAL_PHASES.DISCONNECT_CLEANING]: {
+          title: "接続を一度解除する",
+          copy: "接続済みの「清掃」実行端子を押して、いま作った線を外してください。接続済み入力端子を押すと線を解除できます。"
+        },
+        [LABOR_TUTORIAL_PHASES.PLACE_BRANCH]: {
+          title: "分岐ノードを置く",
+          copy: "NODE LIBRARYの「制御」から「分岐」を編集領域へ置いてください。条件の結果で行き先を二つに分けるノードです。"
+        },
+        [LABOR_TUTORIAL_PHASES.PLACE_CONDITION]: {
+          title: "条件ノードを置く",
+          copy: "NODE LIBRARYの「条件」から「条件」を編集領域へ置いてください。このノードが判定結果のBOOL信号を作ります。"
+        },
+        [LABOR_TUTORIAL_PHASES.CONFIGURE_CONDITION]: {
+          title: "電力50以上を判定する",
+          copy: "条件ノードを CHECK「電力」・TEST「以上」・VALUE「50」に設定してください。"
+        },
+        [LABOR_TUTORIAL_PHASES.PLACE_REST]: {
+          title: "充電休憩ノードを置く",
+          copy: "NODE LIBRARYの「作業」から「充電休憩」を編集領域へ置いてください。"
+        },
+        [LABOR_TUTORIAL_PHASES.CONNECT_EVENT_BRANCH]: {
+          title: "開始信号を分岐へ",
+          copy: "「作業開始」の開始端子から「分岐」の実行端子へつないでください。"
+        },
+        [LABOR_TUTORIAL_PHASES.CONNECT_CONDITION_BRANCH]: {
+          title: "判定結果を渡す",
+          copy: "「条件」のBOOL出力端子から「分岐」のBOOL入力端子へつないでください。"
+        },
+        [LABOR_TUTORIAL_PHASES.CONNECT_TRUE_REST]: {
+          title: "電力50以上なら休憩",
+          copy: "「分岐」の「はい」端子から「充電休憩」の実行端子へつないでください。"
+        },
+        [LABOR_TUTORIAL_PHASES.CONNECT_FALSE_CLEANING]: {
+          title: "それ以外なら清掃",
+          copy: "「分岐」の「いいえ」端子から「清掃」の実行端子へつないでください。これで条件分岐が完成します。"
+        }
+      };
+      return tutorialCopy[phase] || {
+        title: phase === LABOR_TUTORIAL_PHASES.CLEANING_REVIEW ? "清掃ルート完成" : "構成を確認",
+        copy: phase === LABOR_TUTORIAL_PHASES.CLEANING_REVIEW
+          ? "作業開始から清掃へつながりました。まずは基本接続の完了を確認します。"
+          : "電力50以上なら充電休憩、それ以外なら清掃する構成が完成しました。"
+      };
+    }
     const target = laborAssistTargetNode(record?.robot?.supportBlueprint);
     const targetType = target?.type || laborAssistGuide.targetType;
     const targetLabel = supportBlueprintNodeDefinition(targetType).label;
@@ -1402,15 +1672,16 @@
   }
 
   function updateLaborAssistExperiment(record = selectedLaborRobotRecord()) {
+    const tutorial = syncLaborAssistGuideFromTutorial(record);
     const surface = ensureLaborAssistSurface();
-    if (!surface) return;
-    laborAssistGuide.active = false;
-    laborAssistGuide.phase = "";
-    laborAssistGuide.targetNodeId = "";
+    if (!surface) {
+      clearLaborAssistHighlights();
+      return;
+    }
+    if (!tutorial && laborAssistGuide.active) laborAssistGuide.phase = laborAssistGuidePhase(record);
+    if (tutorial) window.syncLaborTutorialLock?.();
     clearLaborAssistHighlights();
 
-    const previousPhase = laborAssistGuide.phase;
-    if (laborAssistGuide.active) laborAssistGuide.phase = laborAssistGuidePhase(record);
     const guide = surface.querySelector("[data-labor-quick-guide]");
     const summaryPanel = surface.querySelector("[data-labor-program-panel]");
     const programSummary = laborAssistProgramSummary(record);
@@ -1424,34 +1695,42 @@
     if (summaryPanel) summaryPanel.hidden = false;
     if (laborAssistGuide.active) {
       const phase = laborAssistGuide.phase;
-      const phases = [
-        LABOR_ASSIST_GUIDE_STEPS.PLACE,
-        LABOR_ASSIST_GUIDE_STEPS.CONNECT,
-        LABOR_ASSIST_GUIDE_STEPS.REVIEW
-      ];
-      const stepIndex = Math.max(0, phases.indexOf(phase));
+      const phases = tutorial
+        ? laborTutorialActionSequence(tutorial)
+        : [LABOR_ASSIST_GUIDE_STEPS.PLACE, LABOR_ASSIST_GUIDE_STEPS.CONNECT, LABOR_ASSIST_GUIDE_STEPS.REVIEW];
+      const phaseIndex = phases.indexOf(phase);
+      const stepIndex = phaseIndex >= 0 ? phaseIndex : phases.length - 1;
       const copy = laborAssistGuideCopy(record, phase);
       const title = surface.querySelector("[data-labor-guide-title]");
       const body = surface.querySelector("[data-labor-guide-copy]");
       const step = surface.querySelector("[data-labor-guide-step]");
       const progress = surface.querySelector("[data-labor-guide-progress]");
-      const complete = surface.querySelector("[data-labor-guide-complete]");
       if (title) title.textContent = copy.title;
       if (body) body.textContent = copy.copy;
-      if (step) step.textContent = "STEP " + (stepIndex + 1) + " / 3";
+      if (step) step.textContent = "STEP " + (stepIndex + 1) + " / " + phases.length;
       if (progress) {
         progress.innerHTML = phases.map((entry, index) => (
           '<i class="' + (index <= stepIndex ? "active" : "") + '" aria-hidden="true"></i>'
         )).join("");
+        progress.style.gridTemplateColumns = "repeat(" + phases.length + ", minmax(24px, 1fr))";
       }
-      if (complete) complete.hidden = phase !== LABOR_ASSIST_GUIDE_STEPS.REVIEW;
-      if (previousPhase !== phase && phase === LABOR_ASSIST_GUIDE_STEPS.CONNECT) {
+      const tutorialReview = tutorial && [
+        LABOR_TUTORIAL_PHASES.CLEANING_REVIEW,
+        LABOR_TUTORIAL_PHASES.ADVANCED_REVIEW
+      ].includes(phase);
+      if (tutorial && !tutorialReview) {
         requestAnimationFrame(centerLaborBlueprintView);
+      }
+      if (tutorialReview && !tutorial.completionQueued) {
+        const robotId = record?.robot?.id || "";
+        const nodeId = laborAssistGuide.targetNodeId;
+        requestAnimationFrame(() => {
+          window.onLaborTutorialConnectionComplete?.({ robotId, nodeId });
+        });
       }
     }
     requestAnimationFrame(() => applyLaborAssistHighlights(record));
   }
-
   function nextSupportBlueprintLinkOrder(blueprint) {
     return blueprint.links.reduce((max, link) => Math.max(max, Number(link.order) || 0), -1) + 1;
   }
@@ -1464,6 +1743,22 @@
     const record = selectedLaborRobotRecord();
     if (!record) return false;
     const blueprint = record.robot.supportBlueprint;
+    const tutorial = activeRequiredLaborTutorial();
+    const tutorialConnection = tutorial
+      ? laborTutorialExpectedConnection(tutorial, blueprint)
+      : null;
+    if (tutorial) {
+      const allowed = tutorialConnection
+        && tutorialConnection.fromId === fromId
+        && tutorialConnection.fromPin === fromPin
+        && tutorialConnection.toId === toId
+        && tutorialConnection.toPin === toPin;
+      if (!allowed) {
+        toast("黄色く強調された出力端子と入力端子を接続してください。", "warning");
+        rejectFeedback();
+        return false;
+      }
+    }
     const from = supportBlueprintNodeById(blueprint, fromId);
     const to = supportBlueprintNodeById(blueprint, toId);
     const output = from ? laborPinDefinition(from.type, "output", fromPin) : null;
@@ -1505,6 +1800,7 @@
       });
     }
     blueprint.links = links;
+    if (tutorialConnection) tutorial.phase = tutorialConnection.nextPhase;
     record.robot.supportBlueprint = normalizeSupportBlueprint(blueprint);
     resetLaborRobotBlueprintRuntime(record.robot);
     if (persist) saveGame();
@@ -1516,9 +1812,22 @@
     const record = selectedLaborRobotRecord();
     if (!record) return false;
     const blueprint = record.robot.supportBlueprint;
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial) {
+      const cleaning = laborTutorialNode(blueprint, tutorial, "cleaning");
+      const allowed = tutorial.phase === LABOR_TUTORIAL_PHASES.DISCONNECT_CLEANING
+        && cleaning?.id === nodeId
+        && pinId === "in";
+      if (!allowed) {
+        toast("いまは強調表示された清掃ノードの接続だけを解除してください。", "warning");
+        rejectFeedback();
+        return false;
+      }
+    }
     const nextLinks = blueprint.links.filter((link) => !(link.to === nodeId && link.toPin === pinId));
     if (nextLinks.length === blueprint.links.length) return false;
     blueprint.links = nextLinks;
+    if (tutorial) tutorial.phase = LABOR_TUTORIAL_PHASES.PLACE_BRANCH;
     resetLaborRobotBlueprintRuntime(record.robot);
     saveGame();
     renderLaborBlueprint();
@@ -1538,6 +1847,16 @@
   function addSupportBlueprintNode(type, dropPosition = null) {
     const record = selectedLaborRobotRecord();
     if (!record || !LABOR_ADDABLE_TYPES.includes(type)) return;
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial) {
+      const expectedType = laborTutorialExpectedNodeType(tutorial);
+      if (!expectedType || type !== expectedType) {
+        const expectedLabel = expectedType ? supportBlueprintNodeDefinition(expectedType).label : "強調表示中の操作";
+        toast("いまは「" + expectedLabel + "」の手順です。", "warning");
+        rejectFeedback();
+        return;
+      }
+    }
     const requireManualGuideConnection = laborAssistShouldRequireManualConnection(type);
     const unlock = supportBlueprintNodeUnlockState(type);
     if (!unlock.unlocked) {
@@ -1571,7 +1890,7 @@
     if (type === "condition") {
       node.conditionSource = "action_available";
       node.operator = "gte";
-      node.value = 1;
+      node.value = tutorial ? 0 : 1;
       node.cropId = defaultBlueprintCropId();
       node.actionType = "plant";
       node.marketId = defaultBlueprintMarketId();
@@ -1595,6 +1914,7 @@
   }
 
   function removeSupportBlueprintNode(nodeId) {
+    if (activeRequiredLaborTutorial()) return;
     const record = selectedLaborRobotRecord();
     if (!record) return;
     const blueprint = record.robot.supportBlueprint;
@@ -1613,6 +1933,18 @@
     if (!record) return;
     const node = supportBlueprintNodeById(record.robot.supportBlueprint, nodeId);
     if (!node) return;
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial) {
+      const condition = laborTutorialNode(record.robot.supportBlueprint, tutorial, "condition");
+      const allowed = tutorial.phase === LABOR_TUTORIAL_PHASES.CONFIGURE_CONDITION
+        && condition?.id === nodeId
+        && ["conditionSource", "operator", "value"].includes(field);
+      if (!allowed) {
+        toast("いまは条件ノードを「電力・以上・50」に設定してください。", "warning");
+        rejectFeedback();
+        return;
+      }
+    }
     if (field === "cropId" && (value === "*" || CROPS[value])) node.cropId = value;
     if (field === "marketId" && MARKETS[value]) node.marketId = value;
     if (field === "conditionSource" && ["action_available", "inventory", "seed", "seed_price", "money", "water", "nutrient", "energy", "morale"].includes(value)) {
@@ -1625,6 +1957,9 @@
     if (field === "value") node.value = Math.max(0, Math.min(999999, Number(value) || 0));
     if (field === "packs") node.packs = Math.max(1, Math.min(12, Math.floor(Number(value) || 1)));
     record.robot.supportBlueprint = normalizeSupportBlueprint(record.robot.supportBlueprint);
+    if (tutorial && laborTutorialConditionIsConfigured(record.robot.supportBlueprint, tutorial)) {
+      tutorial.phase = LABOR_TUTORIAL_PHASES.PLACE_REST;
+    }
     resetLaborRobotBlueprintRuntime(record.robot);
     saveGame();
     renderLaborBlueprint();
@@ -2017,8 +2352,12 @@
     nodesHost.innerHTML = blueprint.nodes.map((node) => (
       supportBlueprintNodeMarkup(node, robot, blueprint)
     )).join("");
+    const tutorial = activeRequiredLaborTutorial();
     const availablePaletteGroups = LABOR_PALETTE_GROUPS;
-    if (!availablePaletteGroups.some((group) => group.label === laborBlueprintPaletteGroup)) {
+    const tutorialPaletteGroup = laborTutorialPaletteGroup(tutorial);
+    if (tutorialPaletteGroup) {
+      laborBlueprintPaletteGroup = tutorialPaletteGroup;
+    } else if (!availablePaletteGroups.some((group) => group.label === laborBlueprintPaletteGroup)) {
       laborBlueprintPaletteGroup = "TASK";
     }
     const paletteGroups = availablePaletteGroups.filter((group) => group.label === laborBlueprintPaletteGroup);
@@ -2034,15 +2373,20 @@
       const buttons = group.types.map((type) => {
         const definition = supportBlueprintNodeDefinition(type);
         const unlock = supportBlueprintNodeUnlockState(type);
-        return `<div class="blueprint-palette-entry" ${laborTooltipAttributes(laborNodeTooltip({ type }, definition, unlock))} tabindex="${unlock.unlocked ? -1 : 0}">
-          <button class="blueprint-add-node ${definition.category}-palette" data-blueprint-add="${escapeHtml(type)}" type="button" ${unlock.unlocked ? "" : "disabled"}>
+        const expectedTutorialType = laborTutorialExpectedNodeType(tutorial);
+        const tutorialTarget = Boolean(tutorial && type === expectedTutorialType);
+        const tutorialLocked = Boolean(tutorial && (!expectedTutorialType || !tutorialTarget));
+        const disabled = !unlock.unlocked || tutorialLocked;
+        const tutorialClass = tutorialTarget ? " tutorial-target" : (tutorial ? " tutorial-locked" : "");
+        const status = tutorialTarget ? "ここから配置" : unlock.reason;
+        return `<div class="blueprint-palette-entry${tutorialClass}" ${laborTooltipAttributes(laborNodeTooltip({ type }, definition, unlock))} tabindex="${disabled ? 0 : -1}">
+          <button class="blueprint-add-node ${definition.category}-palette" data-blueprint-add="${escapeHtml(type)}" type="button" ${disabled ? "disabled" : ""}>
           <strong>＋ ${escapeHtml(definition.label)}</strong>
-          <small>${escapeHtml(unlock.reason)} / 複数配置可</small>
+          <small>${escapeHtml(status)} / 複数配置可</small>
         </button></div>`;
       }).join("");
       return `<section class="blueprint-palette-group"><h4>${group.label}</h4>${buttons}</section>`;
-    }).join("");
-    if (laborTooltipTarget && !laborTooltipTarget.isConnected) hideLaborTooltip(true);
+    }).join("");    if (laborTooltipTarget && !laborTooltipTarget.isConnected) hideLaborTooltip(true);
     const rootOut = laborDefaultPin("event", "output", "exec");
     const hasProgram = blueprint.links.some((link) => link.from === blueprint.rootId && link.fromPin === rootOut);
     if (emptyHint) emptyHint.hidden = hasProgram;
@@ -2063,6 +2407,7 @@
     const summary = document.getElementById("labor-summary");
     const list = document.getElementById("labor-robot-list");
     if (!summary || !list) return;
+    updateLaborTooltipToggleControl();
     const roster = supportRobotRoster();
     const record = selectedLaborRobotRecord();
     const totalEnergy = roster.reduce((sum, entry) => sum + (Number(entry.robot.supportEnergy) || 0), 0);
@@ -2408,6 +2753,8 @@
     if (!button || button.disabled || (event.pointerType === "mouse" && event.button !== 0)) return false;
     const type = button.dataset.blueprintAdd;
     const packageId = button.dataset.blueprintPackageAdd;
+    const tutorial = activeRequiredLaborTutorial();
+    if (tutorial && (type !== laborTutorialExpectedNodeType(tutorial) || packageId)) return false;
     let dragItem = null;
 
     if (type) {
