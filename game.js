@@ -45,10 +45,11 @@ const QUALITY = {
 
 const RESOURCE_CONSUMPTION_RATE = 1 / 6;
 const RESOURCE_BASE_CAPACITY = Object.freeze({ water: 20, nutrient: 20 });
-const RESOURCE_CARTRIDGE_CAPACITY = 10;
+const RESOURCE_LEGACY_CARTRIDGE_CAPACITY = 10;
+const RESOURCE_CARTRIDGE_PRODUCTION_BONUS = 1;
 const RESOURCE_CARTRIDGE_ITEMS = Object.freeze({
-  water_cartridge: Object.freeze({ resource: "water", capacity: RESOURCE_CARTRIDGE_CAPACITY }),
-  nutrient_cartridge: Object.freeze({ resource: "nutrient", capacity: RESOURCE_CARTRIDGE_CAPACITY })
+  water_cartridge: Object.freeze({ resource: "water", productionBonus: RESOURCE_CARTRIDGE_PRODUCTION_BONUS }),
+  nutrient_cartridge: Object.freeze({ resource: "nutrient", productionBonus: RESOURCE_CARTRIDGE_PRODUCTION_BONUS })
 });
 const NON_PURCHASABLE_RESOURCE_ITEMS = new Set(["water", "nutrient"]);
 const REALTIME_DAY_MS = 20000;
@@ -158,7 +159,7 @@ const SHOP_CATEGORIES = {
     title: "AUTOMATION",
     subtitle: "ロボット・高度自動化端末",
     kind: "equipment",
-    items: ["support_robot", "procurement_terminal", "shipping_hatch"]
+    items: ["support_robot", "procurement_terminal", "shipping_hatch", "support_os_storage"]
   }
 };
 const PROPERTY_LISTING_COUNT = 4;
@@ -628,15 +629,15 @@ const SUPPORT_CHARGE_BREAK_DAYS = 0.25;
 const SUPPORT_CHARGE_MORALE_RECOVERY = 5;
 const SUPPORT_FORCED_RECOVERY_DAYS = 1;
 const SUPPORT_RESOURCE_EPSILON = 0.001;
-const SUPPORT_TASK_BASE_COOLDOWN = { harvest: 0.055, plant: 0.06, care: 0.055, cleaning: 0.06, procure: 0.08, ship: 0.08 };
-const SUPPORT_TASK_BASE_COST = { harvest: 5, plant: 4, care: 4, cleaning: 6, procure: 4, ship: 4 };
+const SUPPORT_TASK_BASE_COOLDOWN = { harvest: 0.055, plant: 0.06, care: 0.055, cleaning: 0.06, procure: 0.08, ship: 0.08, resource_collect: 0.06 };
+const SUPPORT_TASK_BASE_COST = { harvest: 5, plant: 4, care: 4, cleaning: 6, procure: 4, ship: 4, resource_collect: 4 };
 const SUPPORT_TASKS = Object.keys(SUPPORT_TASK_BASE_COOLDOWN);
-const SUPPORT_TASK_LABELS = { harvest: '収穫', plant: '種まき', care: '育成管理', cleaning: '清掃', procure: '調達', ship: '出荷' };
+const SUPPORT_TASK_LABELS = { harvest: '収穫', plant: '種まき', care: '育成管理', cleaning: '清掃', procure: '調達', ship: '出荷', resource_collect: '資源回収' };
 const SUPPORT_ROBOT_IDLE_SCAN_MS = 400;
 const supportRobotProfileReady = new WeakSet();
 const supportAutomationStateReady = new WeakSet();
 const supportRobotNextIdleScanAt = new WeakMap();
-const SUPPORT_BLUEPRINT_ACTION_TYPES = ["harvest", "ship", "plant", "care", "procure", "cleaning"];
+const SUPPORT_BLUEPRINT_ACTION_TYPES = ["harvest", "ship", "plant", "care", "procure", "cleaning", "resource_collect"];
 const SUPPORT_BLUEPRINT_TASK_TYPES = [...SUPPORT_BLUEPRINT_ACTION_TYPES, "rest"];
 const SUPPORT_PERSONALITY_TEAM_BONUS_CAP = 0.5;
 const SUPPORT_BLUEPRINT_CONTROL_TYPES = ["branch", "sequence", "flipflop", "daily", "every", "random"];
@@ -722,6 +723,10 @@ const SUPPORT_BLUEPRINT_PIN_SCHEMAS = Object.freeze({
     outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   cleaning: {
+    inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
+    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+  },
+  resource_collect: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
     outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
@@ -2492,7 +2497,7 @@ function createInitialState(mode = "day45") {
     inventory: [],
     equipment: { fridge: false },
     resourceCartridges: { water: 0, nutrient: 0 },
-    supportOS: { harvest: false, planting: false, cleaning: false },
+    supportOS: { harvest: false, planting: false, cleaning: false, storage: false },
     automation: createDefaultSupportAutomation(),
     laborTutorial: createDefaultLaborTutorialState(),
     supportPersonalityTriggerState: { lastProcessed: {} },
@@ -3597,7 +3602,7 @@ function prepareLaborTutorialQaState() {
   state.resultShown = false;
   state.paused = false;
   state.automationTabUnlocked = true;
-  state.supportOS = { harvest: false, planting: false, cleaning: false };
+  state.supportOS = { harvest: false, planting: false, cleaning: false, storage: false };
   state.openedTabs = { farm: true };
   grantFloorDevice("support_robot", { supportBlueprintPreset: "empty" });
   state.log = "LABOR TUTORIAL QA // 通常セーブから分離された接続訓練です。";
@@ -3729,7 +3734,14 @@ function normalizeBase(base) {
     item.tags ||= [];
     item.dirt ||= 0;
   });
-  base.floorDevices.forEach(ensureSupportRobotProfile);
+  base.floorDevices.forEach((device) => {
+    const definition = FLOOR_DEVICES[device.type];
+    if (["water", "nutrient"].includes(definition?.productionResource)) {
+      const stored = Number(device.resourceStored);
+      device.resourceStored = Number.isFinite(stored) ? Math.max(0, stored) : 0;
+    }
+    ensureSupportRobotProfile(device);
+  });
   return base;
 }
 
@@ -4600,6 +4612,7 @@ function resetSupportBlueprintRuntime(robot) {
 }
 function createFloorDevice(type, options = {}) {
   const device = { id: makeId("device"), type, placed: false, x: null, y: null, tags: unitTags(type), dirt: 0 };
+  if (["water", "nutrient"].includes(FLOOR_DEVICES[type]?.productionResource)) device.resourceStored = 0;
   if (type === "support_robot") {
     const requestedPreset = typeof options.supportBlueprintPreset === "string"
       ? options.supportBlueprintPreset
@@ -4636,7 +4649,8 @@ function ensureSupportAutomationState() {
   state.supportOS = {
     harvest: Boolean(state.supportOS?.harvest),
     planting: Boolean(state.supportOS?.planting),
-    cleaning: Boolean(state.supportOS?.cleaning)
+    cleaning: Boolean(state.supportOS?.cleaning),
+    storage: Boolean(state.supportOS?.storage)
   };
   state.automation = {
     procurement: {
@@ -5315,7 +5329,7 @@ function supportRobotExists() {
 
 
 function hasAnySupportOS() {
-  return Boolean(state.supportOS?.harvest || state.supportOS?.planting || state.supportOS?.cleaning);
+  return Boolean(state.supportOS?.harvest || state.supportOS?.planting || state.supportOS?.cleaning || state.supportOS?.storage);
 }
 
 function hasAllBasicSupportOS() {
@@ -6082,12 +6096,12 @@ function repairResourceCartridges() {
     Object.keys(RESOURCE_BASE_CAPACITY).forEach((resource) => {
       const legacyCapacity = Math.max(
         RESOURCE_BASE_CAPACITY[resource],
-        Number(state[`${resource}Capacity`]) || 0,
+        Number(state[resource + "Capacity"]) || 0,
         Number(state[resource]) || 0
       );
       state.resourceCartridges[resource] = Math.max(
         0,
-        Math.ceil((legacyCapacity - RESOURCE_BASE_CAPACITY[resource]) / RESOURCE_CARTRIDGE_CAPACITY)
+        Math.ceil((legacyCapacity - RESOURCE_BASE_CAPACITY[resource]) / RESOURCE_LEGACY_CARTRIDGE_CAPACITY)
       );
     });
     return true;
@@ -6102,10 +6116,20 @@ function repairResourceCartridges() {
   return repaired;
 }
 
+function resourceCapacityLimit(resource) {
+  const baseCapacity = Math.max(0, Number(RESOURCE_BASE_CAPACITY[resource]) || 0);
+  const current = Math.max(0, Number(state?.[resource]) || 0);
+  if (state?.debugMode) {
+    return Math.max(baseCapacity, current, Number(state?.[resource + "Capacity"]) || 0);
+  }
+  // Old saves can temporarily retain resources above the new fixed capacity without losing them.
+  return Math.max(baseCapacity, current);
+}
+
 function resourceProductionSnapshot() {
-  const capacities = Object.fromEntries(Object.entries(RESOURCE_BASE_CAPACITY).map(([resource, baseCapacity]) => [
+  const capacities = Object.fromEntries(Object.keys(RESOURCE_BASE_CAPACITY).map((resource) => [
     resource,
-    baseCapacity + resourceCartridgeCount(resource) * RESOURCE_CARTRIDGE_CAPACITY
+    resourceCapacityLimit(resource)
   ]));
   const snapshot = {
     production: { water: 0, nutrient: 0 },
@@ -6118,23 +6142,22 @@ function resourceProductionSnapshot() {
     const definition = FLOOR_DEVICES[device.type];
     const resource = definition?.productionResource;
     if (!Object.prototype.hasOwnProperty.call(snapshot.production, resource)) return;
-    const planned = definition.productionPerDay || 0;
+    const baseProduction = Math.max(0, Number(definition.productionPerDay) || 0);
+    const cartridgeBonus = resourceCartridgeCount(resource) * RESOURCE_CARTRIDGE_PRODUCTION_BONUS;
+    const planned = baseProduction + cartridgeBonus;
     snapshot.production[resource] += planned;
     snapshot.devices[resource] += 1;
     snapshot.producers.push({
       deviceId: device.id,
       baseId: device.baseId,
       resource,
-      planned
+      planned,
+      baseProduction,
+      cartridgeBonus
     });
   });
-  if (state?.debugMode) {
-    snapshot.capacities.water = Math.max(snapshot.capacities.water, Number(state.water) || 0);
-    snapshot.capacities.nutrient = Math.max(snapshot.capacities.nutrient, Number(state.nutrient) || 0);
-  }
   return snapshot;
 }
-
 function syncResourceCapacities() {
   const snapshot = resourceProductionSnapshot();
   state.waterCapacity = snapshot.capacities.water;
@@ -6146,36 +6169,36 @@ function processDailyResourceProduction() {
   const snapshot = syncResourceCapacities();
   const analytics = ensureAnalytics();
   const actual = { water: 0, nutrient: 0 };
-  const lost = { water: 0, nutrient: 0 };
-  ["water", "nutrient"].forEach((resource) => {
-    const planned = snapshot.production[resource];
-    const current = Math.max(0, Number(state[resource]) || 0);
-    const capacity = snapshot.capacities[resource];
-    actual[resource] = Math.min(planned, Math.max(0, capacity - current));
-    lost[resource] = Math.max(0, planned - actual[resource]);
-    state[resource] = current + actual[resource];
-    if (analytics) {
-      addMetric(analytics.resources, `${resource}Produced`, actual[resource]);
-      addMetric(analytics.resources, `${resource}ProductionLost`, lost[resource]);
+  const blocked = { water: 0, nutrient: 0 };
+  const deviceOutputs = snapshot.producers.flatMap((producer) => {
+    const record = findOwnedEquipment("device", producer.deviceId);
+    if (!record?.item?.placed || producer.planned <= 0) return [];
+    const stored = Math.max(0, Number(record.item.resourceStored) || 0);
+    if (stored > SUPPORT_RESOURCE_EPSILON) {
+      blocked[producer.resource] += 1;
+      return [{ ...producer, actual: 0, stored, blocked: true }];
     }
+    record.item.resourceStored = producer.planned;
+    actual[producer.resource] += producer.planned;
+    return [{ ...producer, actual: producer.planned, stored: record.item.resourceStored, blocked: false }];
   });
-  const deviceOutputs = snapshot.producers.map((producer) => {
-    const totalPlanned = snapshot.production[producer.resource];
-    const produced = totalPlanned > 0
-      ? actual[producer.resource] * (producer.planned / totalPlanned)
-      : 0;
-    return { ...producer, actual: Math.round(produced * 1000) / 1000 };
+  ["water", "nutrient"].forEach((resource) => {
+    if (analytics) addMetric(analytics.resources, resource + "Produced", actual[resource]);
   });
-  return { ...snapshot, actual, lost, deviceOutputs };
+  return { ...snapshot, actual, blocked, deviceOutputs };
 }
-
-const RESOURCE_PRODUCTION_EFFECT_MS = 4000;
+const RESOURCE_PRODUCTION_EFFECT_MS = 5200;
+const RESOURCE_PRODUCTION_EFFECT_PENDING_MS = 60 * 60 * 1000;
 const activeResourceProductionEffects = new Map();
 
 function currentResourceProductionEffect(deviceId) {
   const effect = activeResourceProductionEffects.get(deviceId);
   if (!effect) return null;
-  if (effect.expiresAt <= Date.now()) {
+  const now = Date.now();
+  const expired = effect.status === "active"
+    ? effect.expiresAt <= now
+    : effect.pendingExpiresAt <= now;
+  if (expired) {
     activeResourceProductionEffects.delete(deviceId);
     return null;
   }
@@ -6184,7 +6207,7 @@ function currentResourceProductionEffect(deviceId) {
 
 function applyResourceProductionEffect(deviceElement, effect) {
   if (!deviceElement || !effect) return;
-  const label = deviceElement.querySelector(".resource-production-label");
+  const label = deviceElement.querySelector(".resource-production-label strong");
   if (label) {
     const resourceLabel = effect.resource === "water" ? "WATER" : "NUTRIENT";
     label.textContent = `${resourceLabel} +${formatResource(effect.actual)}`;
@@ -6194,37 +6217,261 @@ function applyResourceProductionEffect(deviceElement, effect) {
   deviceElement.classList.add("resource-production-active");
 }
 
-function showDailyResourceProductionEffects(resourceOutput) {
-  if (!farmScreenIsActive() || !resourceOutput?.deviceOutputs?.length) return;
-  const activeBaseId = currentBase()?.id;
-  resourceOutput.deviceOutputs
-    .filter((output) => output.baseId === activeBaseId && output.actual > 0)
-    .forEach((output, index) => {
+function activateQueuedResourceProductionEffects(baseId = currentBase()?.id) {
+  if (!farmScreenIsActive() || !baseId || currentBase()?.id !== baseId) return;
+  const pending = Array.from(activeResourceProductionEffects.entries())
+    .filter(([, effect]) => effect.baseId === baseId && effect.status === "pending" && !effect.scheduled);
+  pending.forEach(([deviceId, effect], index) => {
+    effect.scheduled = true;
+    window.setTimeout(() => {
+      const current = activeResourceProductionEffects.get(deviceId);
+      if (current !== effect) return;
+      if (!farmScreenIsActive() || currentBase()?.id !== effect.baseId) {
+        effect.scheduled = false;
+        return;
+      }
+      const deviceElement = Array.from(document.querySelectorAll("[data-select-device]"))
+        .find((element) => element.dataset.selectDevice === deviceId);
+      if (!deviceElement) {
+        effect.scheduled = false;
+        return;
+      }
+      effect.status = "active";
+      effect.scheduled = false;
+      effect.startedAt = Date.now();
+      effect.expiresAt = effect.startedAt + RESOURCE_PRODUCTION_EFFECT_MS;
+      applyResourceProductionEffect(deviceElement, effect);
       window.setTimeout(() => {
-        const token = `${Date.now()}-${Math.random()}`;
-        const effect = {
-          token,
-          resource: output.resource,
-          actual: output.actual,
-          expiresAt: Date.now() + RESOURCE_PRODUCTION_EFFECT_MS
-        };
-        activeResourceProductionEffects.set(output.deviceId, effect);
-        const deviceElement = Array.from(document.querySelectorAll("[data-select-device]"))
-          .find((element) => element.dataset.selectDevice === output.deviceId);
-        applyResourceProductionEffect(deviceElement, effect);
-        window.setTimeout(() => {
-          if (activeResourceProductionEffects.get(output.deviceId)?.token === token) {
-            activeResourceProductionEffects.delete(output.deviceId);
-          }
-          const currentElement = Array.from(document.querySelectorAll("[data-select-device]"))
-            .find((element) => element.dataset.selectDevice === output.deviceId);
-          currentElement?.classList.remove("resource-production-active");
-        }, RESOURCE_PRODUCTION_EFFECT_MS);
-      }, index * 120);
-    });
+        if (activeResourceProductionEffects.get(deviceId)?.token === effect.token) {
+          activeResourceProductionEffects.delete(deviceId);
+        }
+        const currentElement = Array.from(document.querySelectorAll("[data-select-device]"))
+          .find((element) => element.dataset.selectDevice === deviceId);
+        currentElement?.classList.remove("resource-production-active");
+      }, RESOURCE_PRODUCTION_EFFECT_MS);
+    }, index * 160);
+  });
 }
 
-function dailyUpkeep() {
+function showDailyResourceProductionEffects(resourceOutput) {
+  if (!resourceOutput?.deviceOutputs?.length) return;
+  const queuedAt = Date.now();
+  resourceOutput.deviceOutputs
+    .filter((output) => output.actual > 0)
+    .forEach((output) => {
+      activeResourceProductionEffects.set(output.deviceId, {
+        token: `${queuedAt}-${output.deviceId}-${Math.random()}`,
+        resource: output.resource,
+        actual: output.actual,
+        baseId: output.baseId,
+        status: "pending",
+        scheduled: false,
+        pendingExpiresAt: queuedAt + RESOURCE_PRODUCTION_EFFECT_PENDING_MS,
+        expiresAt: Number.POSITIVE_INFINITY
+      });
+    });
+  activateQueuedResourceProductionEffects();
+}
+function resourceProductionDefinition(device) {
+  const definition = device ? FLOOR_DEVICES[device.type] : null;
+  return ["water", "nutrient"].includes(definition?.productionResource) ? definition : null;
+}
+
+function storedResourceAmount(device) {
+  return resourceProductionDefinition(device) ? Math.max(0, Number(device.resourceStored) || 0) : 0;
+}
+
+function resourceDisplayName(resource) {
+  return resource === "water" ? "水" : "養液";
+}
+
+function transferProducedResource(device) {
+  const definition = resourceProductionDefinition(device);
+  if (!definition) return { success: false, reason: "invalid" };
+  const resource = definition.productionResource;
+  const stored = storedResourceAmount(device);
+  if (stored <= SUPPORT_RESOURCE_EPSILON) {
+    return { success: false, reason: "empty", definition, resource, stored };
+  }
+  const snapshot = syncResourceCapacities();
+  const current = Math.max(0, Number(state[resource]) || 0);
+  const freeCapacity = Math.max(0, snapshot.capacities[resource] - current);
+  if (freeCapacity <= SUPPORT_RESOURCE_EPSILON) {
+    return { success: false, reason: "full", definition, resource, stored, freeCapacity };
+  }
+  const collected = Math.min(stored, freeCapacity);
+  state[resource] = current + collected;
+  device.resourceStored = Math.max(0, stored - collected);
+  if (device.resourceStored <= SUPPORT_RESOURCE_EPSILON) device.resourceStored = 0;
+  return {
+    success: true,
+    definition,
+    resource,
+    collected,
+    remaining: storedResourceAmount(device)
+  };
+}
+
+function resourceCollectionProfile(resource) {
+  return resource === "water"
+    ? { color: "#48dbea", soft: "rgba(72, 219, 234, .42)", label: "水", code: "WATER" }
+    : { color: "#72ffb8", soft: "rgba(114, 255, 184, .42)", label: "養液", code: "NUTRIENT" };
+}
+
+function playResourceCollectionCelebration({ resource, amount, sourceRect, automated = false }) {
+  const profile = resourceCollectionProfile(resource);
+  const targetElement = document.getElementById(resource + "-card");
+  const targetRect = feedbackRect(targetElement);
+  const originRect = sourceRect || targetRect;
+  if (!originRect) return;
+
+  const fromX = originRect.left + originRect.width / 2;
+  const fromY = originRect.top + originRect.height * 0.42;
+  const toX = targetRect ? targetRect.left + targetRect.width / 2 : fromX;
+  const toY = targetRect ? targetRect.top + targetRect.height / 2 : fromY - 90;
+  const travelX = toX - fromX;
+  const travelY = toY - fromY;
+  const layer = document.createElement("div");
+  layer.className = `resource-collect-celebration resource-collect-${resource}${automated ? " automated" : ""}`;
+  layer.style.setProperty("--resource-color", profile.color);
+  layer.style.setProperty("--resource-soft", profile.soft);
+
+  const source = document.createElement("span");
+  source.className = "resource-collect-source";
+  source.style.left = fromX + "px";
+  source.style.top = fromY + "px";
+  for (let index = 0; index < 3; index += 1) {
+    const ring = document.createElement("i");
+    ring.style.setProperty("--ring-delay", index * 105 + "ms");
+    source.appendChild(ring);
+  }
+  layer.appendChild(source);
+
+  if (targetRect && !isLowSpecMode()) {
+    const beam = document.createElement("span");
+    beam.className = "resource-collect-beam";
+    beam.style.left = fromX + "px";
+    beam.style.top = fromY + "px";
+    beam.style.width = Math.hypot(travelX, travelY) + "px";
+    beam.style.transform = `rotate(${Math.atan2(travelY, travelX)}rad)`;
+    layer.appendChild(beam);
+  }
+
+  const iconUrl = EQUIPMENT[resource]?.icon || `assets/icons/${resource}.webp`;
+  const particleCount = isLowSpecMode() ? (automated ? 3 : 6) : (automated ? 7 : 15);
+  for (let index = 0; index < particleCount; index += 1) {
+    const useIcon = index % 4 === 0;
+    const particle = document.createElement(useIcon ? "img" : "i");
+    particle.className = `resource-collect-flight${useIcon ? " resource-collect-icon" : ""}`;
+    if (useIcon) {
+      particle.src = iconUrl;
+      particle.alt = "";
+    }
+    const spread = (index - (particleCount - 1) / 2) * 4.2;
+    const arc = 34 + (index % 5) * 9;
+    particle.style.left = fromX + "px";
+    particle.style.top = fromY + "px";
+    particle.style.setProperty("--mid-x", travelX * 0.43 + spread + "px");
+    particle.style.setProperty("--mid-y", travelY * 0.34 - arc + "px");
+    particle.style.setProperty("--travel-x", travelX + "px");
+    particle.style.setProperty("--travel-y", travelY + "px");
+    particle.style.setProperty("--flight-delay", (index * 34 + Math.random() * 45) + "ms");
+    particle.style.setProperty("--flight-scale", String(0.72 + (index % 4) * 0.12));
+    layer.appendChild(particle);
+  }
+
+  const label = document.createElement("span");
+  label.className = "resource-collect-label";
+  label.style.left = fromX + "px";
+  label.style.top = (fromY - Math.max(42, originRect.height * 0.38)) + "px";
+  const eyebrow = document.createElement("small");
+  eyebrow.textContent = automated ? "AUTO COLLECTION" : "RESOURCE SECURED";
+  const value = document.createElement("strong");
+  value.textContent = profile.label + " +" + formatResource(amount);
+  label.append(eyebrow, value);
+  layer.appendChild(label);
+
+  document.body.appendChild(layer);
+  if (sourceRect) burstEffect(sourceRect, profile.color, automated ? 10 : 26);
+  if (targetElement) {
+    targetElement.style.setProperty("--collect-color", profile.color);
+    targetElement.classList.remove("resource-collect-target");
+    void targetElement.offsetWidth;
+    targetElement.classList.add("resource-collect-target");
+    window.setTimeout(() => targetElement.classList.remove("resource-collect-target"), 1250);
+  }
+  if (!automated) {
+    window.setTimeout(() => playSoundFirst(["ui_confirm", "resource_collect"], 0.16), 135);
+  }
+  window.setTimeout(() => layer.remove(), automated ? 1350 : 1750);
+}
+function collectProducedResource(device) {
+  const definition = resourceProductionDefinition(device);
+  if (!definition) return false;
+  const sourceElement = Array.from(document.querySelectorAll("[data-select-device]"))
+    .find((element) => element.dataset.selectDevice === device.id);
+  const sourceRect = feedbackRect(sourceElement);
+  const result = transferProducedResource(device);
+  const resource = result.resource || definition.productionResource;
+  const resourceName = resourceDisplayName(resource);
+  if (!result.success && result.reason === "empty") {
+    setStatus(definition.name + "には、まだ回収できる" + resourceName + "がありません。");
+    toast(resourceName + "は生産中です", "warning");
+    return true;
+  }
+  if (!result.success && result.reason === "full") {
+    setStatus(resourceName + "の備蓄容量がいっぱいです。先に資源を使用してください。");
+    toast(resourceName + "の備蓄容量がいっぱいです", "warning");
+    rejectFeedback({ shake: false });
+    return true;
+  }
+  if (!result.success) return false;
+
+  setStatus(
+    definition.name + "から" + resourceName + "を" + formatResource(result.collected) + "回収しました。"
+    + (result.remaining > 0 ? " 設備内に" + formatResource(result.remaining) + "残っています。" : " 次の生産を開始できます。")
+  );
+  toast(resourceName + " +" + formatResource(result.collected));
+  playSoundFirst(["resource_collect", "harvest_bulk", "ui_confirm"], 0.28);
+  hapticFeedback([12, 20, 12, 34, 18]);
+  saveGame();
+  render();
+  playResourceCollectionCelebration({
+    resource,
+    amount: result.collected,
+    sourceRect,
+    automated: false
+  });
+  return true;
+}
+
+function collectProducedResourceByRobot(base, device, robot) {
+  const visibleDevice = base?.id === currentBase()?.id && farmScreenIsActive()
+    ? Array.from(document.querySelectorAll("[data-select-device]"))
+      .find((element) => element.dataset.selectDevice === device.id)
+    : null;
+  const sourceRect = feedbackRect(visibleDevice);
+  const result = transferProducedResource(device);
+  if (!result.success) return false;
+  const resourceName = resourceDisplayName(result.resource);
+  botActionLog(
+    "BOT // " + result.definition.name + "から" + resourceName + "を"
+    + formatResource(result.collected) + "回収。"
+  );
+  playSoundFirst(["resource_collect", "ui_confirm"], 0.1);
+  if (sourceRect) {
+    playResourceCollectionCelebration({
+      resource: result.resource,
+      amount: result.collected,
+      sourceRect,
+      automated: true
+    });
+  } else if (base?.id === currentBase()?.id) {
+    pulseElement(document.getElementById(result.resource + "-card"));
+  }
+  requestFarmRender(base);
+  return true;
+}function dailyUpkeep() {
   return ownedBases().reduce((total, base) => {
     const leds = base.shelves.filter((shelf) => shelf.led).length;
     const fans = base.shelves.filter((shelf) => shelf.fan).length;
@@ -6662,7 +6909,8 @@ function selectRadioProgram(programId) {
 
 function burstEffect(target, color = "#72ffb8", count = 12) {
   if (!target) return;
-  const rect = target.getBoundingClientRect();
+  const rect = feedbackRect(target);
+  if (!rect) return;
   const layer = document.createElement("div");
   layer.className = "effect-burst";
   layer.style.left = `${rect.left + rect.width / 2}px`;
@@ -7756,12 +8004,13 @@ function runStoryEffect(effect, context = {}) {
     const supportOS = state.supportOS || (state.supportOS = {
       harvest: false,
       planting: false,
-      cleaning: false
+      cleaning: false,
+      storage: false
     });
     String(effect.value)
       .split("+")
       .map((osId) => osId.trim())
-      .filter((osId) => ["harvest", "planting", "cleaning"].includes(osId))
+      .filter((osId) => ["harvest", "planting", "cleaning", "storage"].includes(osId))
       .forEach((osId) => {
         supportOS[osId] = true;
       });
@@ -9398,7 +9647,8 @@ function harvestReadySlotElement(element) {
 }
 
 function handleFacilityEquipmentTap(element, event) {
-  if (!element || !isOpaqueEquipmentPointer(element, event)) return false;
+  const resourceMarker = event.target.closest?.("[data-resource-ready]");
+  if (!element || (!resourceMarker && !isOpaqueEquipmentPointer(element, event))) return false;
   const unitButton = element.closest("[data-select-unit]");
   if (unitButton) {
     const unit = currentShelves().find((entry) => entry.id === unitButton.dataset.selectUnit);
@@ -9416,6 +9666,7 @@ function handleFacilityEquipmentTap(element, event) {
   const deviceButton = element.closest("[data-select-device]");
   if (deviceButton) {
     const device = currentFloorDevices().find((entry) => entry.id === deviceButton.dataset.selectDevice);
+    if (resourceProductionDefinition(device)) return collectProducedResource(device);
     if (device?.type === "support_robot") {
       setStatus("Support robot selected. Long press or right click, then choose AUTO.");
       return true;
@@ -9561,7 +9812,8 @@ function supportRobotGachaCandidateMarkup(robot, index) {
     ["種まき", "plant"],
     ["清掃", "cleaning"],
     ["調達", "procure"],
-    ["出荷", "ship"]
+    ["出荷", "ship"],
+    ["資源回収", "resource_collect"]
   ];
   const grades = taskDefinitions.map(([label, task]) => {
     const grade = supportTaskGrade(robot, task);
@@ -9980,6 +10232,7 @@ function buyEquipment(itemId) {
   if (itemId === "support_os_harvest") state.supportOS.harvest = true;
   if (itemId === "support_os_planting") state.supportOS.planting = true;
   if (itemId === "support_os_cleaning") state.supportOS.cleaning = true;
+  if (itemId === "support_os_storage") state.supportOS.storage = true;
 
   const placementNote = GROW_UNITS[itemId] || FLOOR_DEVICES[itemId] ? " 栽培区画の設備ストックに追加しました。" : "";
   setStatus(`${EQUIPMENT[itemId].name}を購入しました。${placementNote}`);
@@ -10856,6 +11109,17 @@ function findSupportCleaningTarget(base, robot) {
   return null;
 }
 
+function findSupportResourceCollectionTarget(base, robot) {
+  if (!state.supportOS?.storage) return null;
+  return base.floorDevices.find((device) => {
+    const definition = resourceProductionDefinition(device);
+    if (!device.placed || !definition || storedResourceAmount(device) <= SUPPORT_RESOURCE_EPSILON) return false;
+    if (!supportRobotCanReach(robot, device, "device")) return false;
+    const resource = definition.productionResource;
+    const current = Math.max(0, Number(state[resource]) || 0);
+    return resourceCapacityLimit(resource) - current > SUPPORT_RESOURCE_EPSILON;
+  }) || null;
+}
 function baseHasReachableDevice(base, robot, type) {
   return base.floorDevices.some((device) => device.type === type && device.placed && supportRobotCanReach(robot, device, "device"));
 }
@@ -10910,6 +11174,7 @@ function supportBlueprintActionUnlocked(type) {
   if (type === "plant") return Boolean(state.supportOS?.planting);
   if (type === "care") return Boolean(state.supportOS?.planting);
   if (type === "cleaning") return Boolean(state.supportOS?.cleaning);
+  if (type === "resource_collect") return Boolean(state.supportOS?.storage);
   if (type === "ship") {
     return ownedBases().some((base) => base.floorDevices?.some((device) => device.type === "shipping_hatch"));
   }
@@ -10927,6 +11192,7 @@ function supportBlueprintActionTarget(base, robot, node, { silent = false } = {}
   if (node.type === "care") return findSupportCareTarget(base, robot, node);
   if (node.type === "procure") return findSupportProcurementTarget(base, robot, node);
   if (node.type === "cleaning") return findSupportCleaningTarget(base, robot);
+  if (node.type === "resource_collect") return findSupportResourceCollectionTarget(base, robot);
   return null;
 }
 
@@ -11047,6 +11313,8 @@ function executeSupportBlueprintAction(context, node) {
     completed = buySeedPacksByRobot(context.robot, target.cropId, target.packs);
   } else if (task === "cleaning") {
     completed = cleanItemByRobot(context.base, target.kind, target.item, context.robot);
+  } else if (task === "resource_collect") {
+    completed = collectProducedResourceByRobot(context.base, target, context.robot);
   }
   if (!completed) {
     setSupportBlueprintNodeBadge(context, node.id, "次へ", "skip");
@@ -11324,7 +11592,7 @@ function showSupportRobotPanel(device) {
     const percent = Math.round((Number(value) || 0) * 1000) / 10;
     return `${percent >= 0 ? "+" : ""}${percent}%`;
   };
-  const html = `<div class="device-detail support-automation-panel"><img src="${FLOOR_DEVICES.support_robot?.sprite || FLOOR_DEVICES.support_robot?.icon}" alt=""><div><h3>${escapeHtml(FLOOR_DEVICES.support_robot?.name || "Support Robot")}</h3><p>特技: ${escapeHtml(skill.name || device.robotSkillId)} // 収穫${supportTaskGrade(device, "harvest")} 植付${supportTaskGrade(device, "plant")} 育成${supportTaskGrade(device, "care")} 清掃${supportTaskGrade(device, "cleaning")} 調達${supportTaskGrade(device, "procure")} 出荷${supportTaskGrade(device, "ship")}</p><p>性格タグ: [${escapeHtml(rarity.name)}] ${escapeHtml(personalityNames)}</p><p>${personalityDescriptions || "性格特性の説明は未設定です。"}</p><p>担当作業 ${efficiency.assignedTaskCount}種類 / 個体補正 ${percentLabel(efficiency.selfBonus)} / 同拠点補正 ${percentLabel(efficiency.teamBonus)}</p><p>範囲 ${supportRobotRange(device)} / 電力 ${Math.round(Number(device.supportEnergy) || 0)} / 気力 ${Math.round(Number(device.supportMorale) || 0)} / 共通効率 ${Math.round(efficiency.totalEfficiency * 100)}%</p><p>OS: 収穫 ${state.supportOS.harvest ? "ONLINE" : "LOCKED"} / 植付・育成 ${state.supportOS.planting ? "ONLINE" : "LOCKED"} / 清掃 ${state.supportOS.cleaning ? "ONLINE" : "LOCKED"}</p></div></div>${supportRobotHarvestPanel(device)}${supportRobotPlantingPanel(device)}`;
+  const html = `<div class="device-detail support-automation-panel"><img src="${FLOOR_DEVICES.support_robot?.sprite || FLOOR_DEVICES.support_robot?.icon}" alt=""><div><h3>${escapeHtml(FLOOR_DEVICES.support_robot?.name || "Support Robot")}</h3><p>特技: ${escapeHtml(skill.name || device.robotSkillId)} // 収穫${supportTaskGrade(device, "harvest")} 植付${supportTaskGrade(device, "plant")} 育成${supportTaskGrade(device, "care")} 清掃${supportTaskGrade(device, "cleaning")} 調達${supportTaskGrade(device, "procure")} 出荷${supportTaskGrade(device, "ship")} 回収${supportTaskGrade(device, "resource_collect")}</p><p>性格タグ: [${escapeHtml(rarity.name)}] ${escapeHtml(personalityNames)}</p><p>${personalityDescriptions || "性格特性の説明は未設定です。"}</p><p>担当作業 ${efficiency.assignedTaskCount}種類 / 個体補正 ${percentLabel(efficiency.selfBonus)} / 同拠点補正 ${percentLabel(efficiency.teamBonus)}</p><p>範囲 ${supportRobotRange(device)} / 電力 ${Math.round(Number(device.supportEnergy) || 0)} / 気力 ${Math.round(Number(device.supportMorale) || 0)} / 共通効率 ${Math.round(efficiency.totalEfficiency * 100)}%</p><p>OS: 収穫 ${state.supportOS.harvest ? "ONLINE" : "LOCKED"} / 植付・育成 ${state.supportOS.planting ? "ONLINE" : "LOCKED"} / 清掃 ${state.supportOS.cleaning ? "ONLINE" : "LOCKED"} / 資源回収 ${state.supportOS.storage ? "ONLINE" : "LOCKED"}</p></div></div>${supportRobotHarvestPanel(device)}${supportRobotPlantingPanel(device)}`;
   showModal("SUPPORT ROBOT", "支援ロボット個体情報", html, true, false, "閉じる");
 }
 function cropChoiceButtons(actionPrefix, selectedCropId, { seedLocked = false } = {}) {
@@ -11467,7 +11735,7 @@ function adjustEnvironment(key, delta) {
 
 function processDayBoundary() {
   if (state.ended) return;
-  let resourceOutputForEffects = null;
+
   activePlants().forEach(({ plant }) => {
     if (plant.ready) {
       plant.readyAge += 1;
@@ -11492,6 +11760,7 @@ function processDayBoundary() {
   if (shouldRefreshMonthlyScheduleForDay(state.day)) {
     state.monthlySchedule = generateMonthlySchedule();
   }
+  let resourceOutput = null;
   const operationFailed = !debugMode && (state.money <= -500 || state.consecutiveDebtDays >= 3);
   if (operationFailed && isTimedPlayMode(state.mode)) {
     finalizeDay30Run({ completed: false, playedDays: state.day, mode: state.mode });
@@ -11502,17 +11771,23 @@ function processDayBoundary() {
     state.paused = true;
     showEndReport();
   } else {
-    const resourceOutput = processDailyResourceProduction();
-    resourceOutputForEffects = resourceOutput;
+    resourceOutput = processDailyResourceProduction();
     const personalityTriggerResults = processSupportRobotPersonalityTriggers("day_start");
     updateMarketForDay({ drift: true });
-    const productionText = resourceOutput.devices.water || resourceOutput.devices.nutrient
-      ? ` / 生産 水 +${formatResource(resourceOutput.actual.water)}・養液 +${formatResource(resourceOutput.actual.nutrient)}`
-      : "";
+    const blockedCount = (resourceOutput.blocked.water || 0) + (resourceOutput.blocked.nutrient || 0);
+    const productionParts = [];
+    if (resourceOutput.actual.water > 0 || resourceOutput.actual.nutrient > 0) {
+      productionParts.push(
+        "設備に蓄積 水 +" + formatResource(resourceOutput.actual.water)
+        + "・養液 +" + formatResource(resourceOutput.actual.nutrient)
+      );
+    }
+    if (blockedCount > 0) productionParts.push("未回収のため生産停止 " + blockedCount + "基");
+    const productionText = productionParts.length ? " / " + productionParts.join(" / ") : "";
     setStatus(`DAY ${state.day} 開始：維持費 ₡${upkeep}を支払いました${productionText}。`);
     toast(`DAY ${String(state.day).padStart(2, "0")} 開始`);
     if (productionText) {
-      toast(`RESOURCE OUTPUT // 水 +${formatResource(resourceOutput.actual.water)} / 養液 +${formatResource(resourceOutput.actual.nutrient)}`);
+      toast(`RESOURCE STORED // 水 +${formatResource(resourceOutput.actual.water)} / 養液 +${formatResource(resourceOutput.actual.nutrient)}`);
     }
     maybeShowTimedModeCountdown();
     personalityTriggerResults.forEach((result) => {
@@ -11528,7 +11803,8 @@ function processDayBoundary() {
 
   saveGame();
   render();
-  if (resourceOutputForEffects) showDailyResourceProductionEffects(resourceOutputForEffects);
+  showDailyResourceProductionEffects(resourceOutput);
+
 }
 
 function realtimeTick() {
@@ -12893,7 +13169,7 @@ function unlockDebugState() {
   state.automationTabUnlocked = true;
   state.shopUnlocked = true;
   state.brokerUnlocked = true;
-  state.supportOS = { harvest: true, planting: true, cleaning: true };
+  state.supportOS = { harvest: true, planting: true, cleaning: true, storage: true };
   state.timeUnlocked = true;
   grantFloorDevice("support_robot", { supportBlueprintPreset: "white-work" });
   state.unlocks ||= {};
@@ -13710,16 +13986,35 @@ function renderFarm() {
     const definition = FLOOR_DEVICES[device.type];
     const deviceLabel = device.type === "light" ? "LED" : device.type === "fan" ? "FAN" : definition.code || definition.name;
     const productionResource = ["water", "nutrient"].includes(definition.productionResource) ? definition.productionResource : "";
+    const storedProduction = productionResource ? storedResourceAmount(device) : 0;
     const productionVisual = productionResource ? currentResourceProductionEffect(device.id) : null;
-    const productionParticles = productionResource && !isLowSpecMode()
-      ? [-26, -17, -8, 2, 11, 20, 28].map((start, index) => {
-          const end = [-12, -25, 3, -8, 24, 9, 31][index];
-          const scale = [0.7, 1, 0.8, 1.15, 0.75, 0.95, 0.65][index];
-          return `<span class="resource-production-particle" style="--particle-start:${start}px;--particle-end:${end}px;--particle-delay:${index * 90}ms;--particle-scale:${scale}"></span>`;
+    const productionCode = productionResource === "water" ? "WATER" : "NUTRIENT";
+    const productionIcon = productionResource
+      ? EQUIPMENT[productionResource]?.icon || `assets/icons/${productionResource}.webp`
+      : "";
+    const productionParticles = productionResource
+      ? Array.from({ length: isLowSpecMode() ? 6 : 15 }, (_, index) => {
+          const start = -38 + (index % 8) * 11;
+          const end = -46 + ((index * 17) % 94);
+          const scale = 0.58 + (index % 5) * 0.14;
+          const drift = -12 + (index % 4) * 8;
+          return `<span class="resource-production-particle" style="--particle-start:${start}px;--particle-end:${end}px;--particle-delay:${index * 58}ms;--particle-scale:${scale};--particle-drift:${drift}px"></span>`;
         }).join("")
       : "";
     const productionEffect = productionResource
-      ? `<span class="resource-production-fx resource-production-${productionResource}" aria-hidden="true"><span class="resource-production-halo"></span>${productionParticles}<span class="resource-production-label">${productionVisual ? `${productionVisual.resource === "water" ? "WATER" : "NUTRIENT"} +${formatResource(productionVisual.actual)}` : ""}</span></span>`
+      ? `<span class="resource-production-fx resource-production-${productionResource}" aria-hidden="true">
+          <span class="resource-production-flash"></span>
+          <span class="resource-production-column"></span>
+          <span class="resource-production-scan"></span>
+          <span class="resource-production-halo halo-one"></span>
+          <span class="resource-production-halo halo-two"></span>
+          <span class="resource-production-halo halo-three"></span>
+          ${productionParticles}
+          <span class="resource-production-label"><img src="${productionIcon}" alt=""><span><small>PRODUCTION COMPLETE</small><strong>${productionVisual ? `${productionCode} +${formatResource(productionVisual.actual)}` : productionCode + " READY"}</strong></span></span>
+        </span>`
+      : "";
+    const resourceReadyBubble = storedProduction > 0
+      ? `<span class="resource-ready-bubble resource-ready-${productionResource}" data-resource-ready="${productionResource}" aria-hidden="true" title="${resourceDisplayName(productionResource)}を${formatResource(storedProduction)}回収"><img src="${EQUIPMENT[productionResource]?.icon || `assets/icons/${productionResource}.webp`}" alt=""><strong>${formatResource(storedProduction)}</strong></span>`
       : "";
     const talkEntry = device.type === "support_robot" ? supportRobotTalkForRobot(device.id) : null;
     const talkLabel = talkEntry
@@ -13733,9 +14028,9 @@ function renderFarm() {
     const recoveryMarker = recoveryMode
       ? `<span class="support-robot-rest-marker ${recoveryMode === "forced" ? "forced-rest" : "charge-break"}" role="img" aria-label="${recoveryLabel}" title="${recoveryLabel}"><span aria-hidden="true">${recoveryMode === "forced" ? "Z" : "⚡"}</span></span>`
       : "";
-    return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${productionVisual ? "resource-production-active" : ""} ${talkEntry ? "has-robot-talk" : ""}"
-      style="grid-column:${device.x + 1};grid-row:${device.y + 1};z-index:${20 + device.y}" data-select-device="${device.id}" data-drag-kind="device" data-drag-id="${device.id}">
-      <span class="facility-facing-layer"><img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"></span><span class="device-field"></span>${productionEffect}${talkMarker}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
+    return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${productionVisual?.status === "active" ? "resource-production-active" : ""} ${storedProduction > 0 ? "resource-ready" : ""} ${talkEntry ? "has-robot-talk" : ""}"
+      aria-label="${definition.name}${storedProduction > 0 ? `、${resourceDisplayName(productionResource)}${formatResource(storedProduction)}回収可能` : ""}" style="grid-column:${device.x + 1};grid-row:${device.y + 1};z-index:${20 + device.y}" data-select-device="${device.id}" data-drag-kind="device" data-drag-id="${device.id}">
+      <span class="facility-facing-layer"><img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"></span><span class="device-field"></span>${productionEffect}${resourceReadyBubble}${talkMarker}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
     </button>`;
   }).join("");
 
@@ -13856,6 +14151,7 @@ const unplaced = sharedStockItems();
   if (continuousCountEl) continuousCountEl.textContent = `${allShelves().filter((unit) => GROW_UNITS[unit.type]?.continuous).length} UNIT`;
   document.getElementById("farm-summary").innerHTML = `<span>生育中</span><strong>${growing}</strong><span>収穫可能</span><strong>${ready}</strong>${carePending ? `<span>手入れ待ち</span><strong class="care-summary-count">${carePending}</strong>` : ""}${dead ? `<span>枯死</span><strong class="danger-text">${dead}</strong>` : ""}`;
   applyUiGuide();
+  activateQueuedResourceProductionEffects(base.id);
 }
 
 function renderSlot(plant, shelfIndex, slotIndex) {
@@ -14184,7 +14480,8 @@ function renderEquipmentShopCard(itemId, item) {
   const owned = (itemId === "fridge" && state.equipment.fridge)
     || (itemId === "support_os_harvest" && state.supportOS?.harvest)
     || (itemId === "support_os_planting" && state.supportOS?.planting)
-    || (itemId === "support_os_cleaning" && state.supportOS?.cleaning);
+    || (itemId === "support_os_cleaning" && state.supportOS?.cleaning)
+    || (itemId === "support_os_storage" && state.supportOS?.storage);
   let price = item.basePrice;
   if (GROW_UNITS[itemId]) price = growUnitPrice(itemId);
   const tags = (GROW_UNITS[itemId] || FLOOR_DEVICES[itemId]) ? unitTags(itemId) : [];
@@ -14195,9 +14492,11 @@ function renderEquipmentShopCard(itemId, item) {
   if (GROW_UNITS[itemId]) count = ` x${unitCount(itemId)}`;
   if (FLOOR_DEVICES[itemId]) count = ` x${allFloorDevices().filter((device) => device.type === itemId).length}`;
   const resourceCartridge = RESOURCE_CARTRIDGE_ITEMS[itemId];
-  if (resourceCartridge) count = ` x${resourceCartridgeCount(resourceCartridge.resource)}`;
+  if (resourceCartridge) count = " x" + resourceCartridgeCount(resourceCartridge.resource);
   const description = resourceCartridge && available
-    ? `${item.description}<br>現在の最大備蓄量 ${formatNumber(state[`${resourceCartridge.resource}Capacity`])}`
+    ? item.description
+      + "<br>現在の生産補正 +" + formatNumber(resourceCartridgeCount(resourceCartridge.resource) * resourceCartridge.productionBonus)
+      + " / 対応設備 " + formatNumber(resourceProductionSnapshot().devices[resourceCartridge.resource]) + "基"
     : available ? item.description : unlockHint("shop_item", itemId, item.description);
   return `<article class="shop-card ${available ? "" : "locked"} ${owned ? "owned" : ""}" style="--item-color:${item.color}">
       ${owned ? `<span class="owned-tag">INSTALLED</span>` : ""}
@@ -14801,7 +15100,8 @@ function bindEvents() {
       return;
     }
 
-    const spriteEquipment = equipmentItemAtSpritePoint(event.clientX, event.clientY);
+    const resourceReadyTarget = event.target.closest?.("[data-resource-ready]")?.closest("[data-select-device]");
+    const spriteEquipment = resourceReadyTarget || equipmentItemAtSpritePoint(event.clientX, event.clientY);
     const unitButton = spriteEquipment?.closest("[data-select-unit]") || event.target.closest("[data-select-unit]");
     if (unitButton) {
       if (!isOpaqueEquipmentPointer(unitButton, event)) return;
@@ -14814,10 +15114,14 @@ function bindEvents() {
       return;
     }
 
-    const deviceButton = spriteEquipment?.closest("[data-select-device]") || event.target.closest("[data-select-device]");
+    const deviceButton = resourceReadyTarget || spriteEquipment?.closest("[data-select-device]") || event.target.closest("[data-select-device]");
     if (deviceButton) {
-      if (!isOpaqueEquipmentPointer(deviceButton, event)) return;
+      if (!resourceReadyTarget && !isOpaqueEquipmentPointer(deviceButton, event)) return;
       const device = currentFloorDevices().find((entry) => entry.id === deviceButton.dataset.selectDevice);
+      if (resourceProductionDefinition(device)) {
+        collectProducedResource(device);
+        return;
+      }
       if (device?.type === "support_robot") {
         setStatus("Support robot selected. Long press or right click, then choose AUTO.");
         return;
@@ -14942,6 +15246,7 @@ function bindEvents() {
       return;
     }
     if (event.target.closest?.("[data-support-robot-talk]")) return;
+    if (event.target.closest?.("[data-resource-ready]")) return;
     if (event.target.closest?.("[data-select-base]")) return;
     if (pointerDrag) return;
     if (equipmentMenu?.persistent) {
