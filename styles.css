@@ -2419,45 +2419,45 @@ html.low-spec-mode .support-robot-talk-marker::before {
 }
 
 .resource-production-active .equipment-sprite {
-  animation: resource-production-device-pulse 3.2s cubic-bezier(.2, .75, .24, 1) both;
+  animation: resource-production-device-pulse 3.2s cubic-bezier(.2, .75, .24, 1) var(--resource-production-offset, 0ms) both;
 }
 
 .resource-production-active .resource-production-flash {
-  animation: resource-production-flash 1.2s ease-out both;
+  animation: resource-production-flash 1.2s ease-out var(--resource-production-offset, 0ms) both;
 }
 
 .resource-production-active .resource-production-column {
-  animation: resource-production-column 2.7s cubic-bezier(.16, .76, .22, 1) both;
+  animation: resource-production-column 2.7s cubic-bezier(.16, .76, .22, 1) var(--resource-production-offset, 0ms) both;
 }
 
 .resource-production-active .resource-production-scan {
-  animation: resource-production-scan 2.25s ease-in-out .18s both;
+  animation: resource-production-scan 2.25s ease-in-out calc(var(--resource-production-offset, 0ms) + .18s) both;
 }
 
 .resource-production-active .resource-production-halo {
-  animation: resource-production-halo 1.5s ease-out both;
+  animation: resource-production-halo 1.5s ease-out var(--resource-production-offset, 0ms) both;
 }
 
 .resource-production-active .resource-production-halo.halo-two {
-  animation-delay: .24s;
+  animation-delay: calc(var(--resource-production-offset, 0ms) + .24s);
 }
 
 .resource-production-active .resource-production-halo.halo-three {
-  animation-delay: .48s;
+  animation-delay: calc(var(--resource-production-offset, 0ms) + .48s);
 }
 
 .resource-production-active .resource-production-particle {
-  animation: resource-production-particle 2.5s cubic-bezier(.16, .74, .2, 1) var(--particle-delay) both;
+  animation: resource-production-particle 2.5s cubic-bezier(.16, .74, .2, 1) calc(var(--resource-production-offset, 0ms) + var(--particle-delay)) both;
 }
 
 .resource-production-active .resource-production-label {
-  animation: resource-production-label 4.25s cubic-bezier(.2, .75, .24, 1) .2s both;
+  animation: resource-production-label 4.25s cubic-bezier(.2, .75, .24, 1) calc(var(--resource-production-offset, 0ms) + .2s) both;
 }
 
 .resource-production-active .resource-ready-bubble {
   animation:
-    resource-ready-arrive .72s cubic-bezier(.15, .8, .22, 1.32) 1.4s both,
-    resource-ready-float 1.8s ease-in-out 2.12s infinite;
+    resource-ready-arrive .72s cubic-bezier(.15, .8, .22, 1.32) calc(var(--resource-production-offset, 0ms) + 1.4s) both,
+    resource-ready-float 1.8s ease-in-out calc(var(--resource-production-offset, 0ms) + 2.12s) infinite;
 }
 
 @keyframes resource-ready-float {

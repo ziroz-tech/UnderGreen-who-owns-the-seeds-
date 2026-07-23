@@ -6205,6 +6205,14 @@ function currentResourceProductionEffect(deviceId) {
   return effect;
 }
 
+function resourceProductionEffectElapsed(effect) {
+  if (!effect || effect.status !== "active") return 0;
+  return Math.max(0, Math.min(
+    RESOURCE_PRODUCTION_EFFECT_MS,
+    Date.now() - (Number(effect.startedAt) || Date.now())
+  ));
+}
+
 function applyResourceProductionEffect(deviceElement, effect) {
   if (!deviceElement || !effect) return;
   const label = deviceElement.querySelector(".resource-production-label strong");
@@ -6212,9 +6220,31 @@ function applyResourceProductionEffect(deviceElement, effect) {
     const resourceLabel = effect.resource === "water" ? "WATER" : "NUTRIENT";
     label.textContent = `${resourceLabel} +${formatResource(effect.actual)}`;
   }
-  deviceElement.classList.remove("resource-production-active");
-  void deviceElement.offsetWidth;
+  const token = String(effect.token || "");
+  const alreadyRunning = deviceElement.dataset.resourceProductionEffectToken === token
+    && deviceElement.classList.contains("resource-production-active");
+  if (alreadyRunning) return;
+  deviceElement.style.setProperty(
+    "--resource-production-offset",
+    `${-resourceProductionEffectElapsed(effect)}ms`
+  );
+  deviceElement.dataset.resourceProductionEffectToken = token;
+  if (deviceElement.classList.contains("resource-production-active")) {
+    deviceElement.classList.remove("resource-production-active");
+    void deviceElement.offsetWidth;
+  }
   deviceElement.classList.add("resource-production-active");
+}
+
+function restoreActiveResourceProductionEffects(baseId = currentBase()?.id) {
+  if (!farmScreenIsActive() || !baseId || currentBase()?.id !== baseId) return;
+  activeResourceProductionEffects.forEach((effect, deviceId) => {
+    if (effect.baseId !== baseId || effect.status !== "active") return;
+    if (!currentResourceProductionEffect(deviceId)) return;
+    const deviceElement = Array.from(document.querySelectorAll("[data-select-device]"))
+      .find((element) => element.dataset.selectDevice === deviceId);
+    if (deviceElement) applyResourceProductionEffect(deviceElement, effect);
+  });
 }
 
 function activateQueuedResourceProductionEffects(baseId = currentBase()?.id) {
@@ -6247,7 +6277,11 @@ function activateQueuedResourceProductionEffects(baseId = currentBase()?.id) {
         }
         const currentElement = Array.from(document.querySelectorAll("[data-select-device]"))
           .find((element) => element.dataset.selectDevice === deviceId);
-        currentElement?.classList.remove("resource-production-active");
+        if (currentElement?.dataset.resourceProductionEffectToken === String(effect.token || "")) {
+          currentElement.classList.remove("resource-production-active");
+          currentElement.style.removeProperty("--resource-production-offset");
+          delete currentElement.dataset.resourceProductionEffectToken;
+        }
       }, RESOURCE_PRODUCTION_EFFECT_MS);
     }, index * 160);
   });
@@ -14028,7 +14062,7 @@ function renderFarm() {
     const recoveryMarker = recoveryMode
       ? `<span class="support-robot-rest-marker ${recoveryMode === "forced" ? "forced-rest" : "charge-break"}" role="img" aria-label="${recoveryLabel}" title="${recoveryLabel}"><span aria-hidden="true">${recoveryMode === "forced" ? "Z" : "⚡"}</span></span>`
       : "";
-    return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${productionVisual?.status === "active" ? "resource-production-active" : ""} ${storedProduction > 0 ? "resource-ready" : ""} ${talkEntry ? "has-robot-talk" : ""}"
+    return `<button class="facility-item floor-device device-${device.type} device-running ${needsCleaning(device) ? "needs-cleaning" : ""} ${selectedDeviceId === device.id ? "selected" : ""} ${storedProduction > 0 ? "resource-ready" : ""} ${talkEntry ? "has-robot-talk" : ""}"
       aria-label="${definition.name}${storedProduction > 0 ? `、${resourceDisplayName(productionResource)}${formatResource(storedProduction)}回収可能` : ""}" style="grid-column:${device.x + 1};grid-row:${device.y + 1};z-index:${20 + device.y}" data-select-device="${device.id}" data-drag-kind="device" data-drag-id="${device.id}">
       <span class="facility-facing-layer"><img class="equipment-sprite" src="${freshCharacterAssetUrl(definition.sprite)}" alt="" draggable="false"></span><span class="device-field"></span>${productionEffect}${resourceReadyBubble}${talkMarker}${recoveryMarker}<span class="item-label">${deviceLabel}</span>
     </button>`;
@@ -14105,6 +14139,7 @@ function renderFarm() {
       element.style.top = `${pos.y}px`;
     });
   }
+  restoreActiveResourceProductionEffects(base.id);
   grid.dataset.cameraSide = cameraSide;
   const detailPanel = document.getElementById("selected-unit-panel");
   if (detailPanel) detailPanel.innerHTML = "";
