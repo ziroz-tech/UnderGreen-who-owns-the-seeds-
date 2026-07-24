@@ -46,11 +46,11 @@ const QUALITY = {
 
 const RESOURCE_CONSUMPTION_RATE = 1 / 6;
 const RESOURCE_BASE_CAPACITY = Object.freeze({ water: 20, nutrient: 20 });
-const RESOURCE_LEGACY_CARTRIDGE_CAPACITY = 10;
+const RESOURCE_CARTRIDGE_CAPACITY_BONUS = 10;
 const RESOURCE_CARTRIDGE_PRODUCTION_BONUS = 1;
 const RESOURCE_CARTRIDGE_ITEMS = Object.freeze({
-  water_cartridge: Object.freeze({ resource: "water", productionBonus: RESOURCE_CARTRIDGE_PRODUCTION_BONUS }),
-  nutrient_cartridge: Object.freeze({ resource: "nutrient", productionBonus: RESOURCE_CARTRIDGE_PRODUCTION_BONUS })
+  water_cartridge: Object.freeze({ resource: "water", productionBonus: RESOURCE_CARTRIDGE_PRODUCTION_BONUS, capacityBonus: RESOURCE_CARTRIDGE_CAPACITY_BONUS }),
+  nutrient_cartridge: Object.freeze({ resource: "nutrient", productionBonus: RESOURCE_CARTRIDGE_PRODUCTION_BONUS, capacityBonus: RESOURCE_CARTRIDGE_CAPACITY_BONUS })
 });
 const NON_PURCHASABLE_RESOURCE_ITEMS = new Set(["water", "nutrient"]);
 const REALTIME_DAY_MS = 20000;
@@ -6301,7 +6301,7 @@ function repairResourceCartridges() {
       );
       state.resourceCartridges[resource] = Math.max(
         0,
-        Math.ceil((legacyCapacity - RESOURCE_BASE_CAPACITY[resource]) / RESOURCE_LEGACY_CARTRIDGE_CAPACITY)
+        Math.ceil((legacyCapacity - RESOURCE_BASE_CAPACITY[resource]) / RESOURCE_CARTRIDGE_CAPACITY_BONUS)
       );
     });
     return true;
@@ -6318,12 +6318,14 @@ function repairResourceCartridges() {
 
 function resourceCapacityLimit(resource) {
   const baseCapacity = Math.max(0, Number(RESOURCE_BASE_CAPACITY[resource]) || 0);
+  const cartridgeCapacity = resourceCartridgeCount(resource) * RESOURCE_CARTRIDGE_CAPACITY_BONUS;
+  const calculatedCapacity = baseCapacity + cartridgeCapacity;
   const current = Math.max(0, Number(state?.[resource]) || 0);
   if (state?.debugMode) {
-    return Math.max(baseCapacity, current, Number(state?.[resource + "Capacity"]) || 0);
+    return Math.max(calculatedCapacity, current, Number(state?.[resource + "Capacity"]) || 0);
   }
-  // Old saves can temporarily retain resources above the new fixed capacity without losing them.
-  return Math.max(baseCapacity, current);
+  // Old saves can temporarily retain resources above the calculated capacity without losing them.
+  return Math.max(calculatedCapacity, current);
 }
 
 function resourceProductionSnapshot() {
@@ -14846,6 +14848,7 @@ function renderEquipmentShopCard(itemId, item) {
   const description = resourceCartridge && available
     ? item.description
       + "<br>現在の生産補正 +" + formatNumber(resourceCartridgeCount(resourceCartridge.resource) * resourceCartridge.productionBonus)
+      + " / 貯蔵補正 +" + formatNumber(resourceCartridgeCount(resourceCartridge.resource) * resourceCartridge.capacityBonus)
       + " / 対応設備 " + formatNumber(resourceProductionSnapshot().devices[resourceCartridge.resource]) + "基"
     : available ? item.description : unlockHint("shop_item", itemId, item.description);
   return `<article class="shop-card ${available ? "" : "locked"} ${owned ? "owned" : ""}" style="--item-color:${item.color}">
