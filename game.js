@@ -2,9 +2,10 @@
 
 let CROPS = {};
 let MARKETS = {};
-let MARKET_SIGNALS = {};
-let CROP_MARKET_RESPONSE = {};
-let MARKET_SUPPLY_EFFECTS = {};
+let MARKET_DEMAND_PROFILES = {};
+let MARKET_EVENT_DEMAND_EFFECTS = [];
+let SUPPLY_LEVELS = [];
+let SUPPLY_CROPS = {};
 let BASE_TAGS = {};
 let EQUIPMENT_TAGS = {};
 let CROP_ENVIRONMENT = {};
@@ -192,6 +193,7 @@ let pendingSaleSaveTimer = null;
 let pendingSaleRenderTimer = null;
 let saleBurstActiveUntil = 0;
 let lastInventoryRenderSignature = "";
+let lastDemandRenderSignature = "";
 const SALE_SAVE_IDLE_MS = 240;
 const SALE_RENDER_IDLE_MS = 700;
 const SALE_POINTER_GUARD_MS = 900;
@@ -605,17 +607,10 @@ async function toggleFullscreenMode() {
 
 const SCHEDULE_DAYS = 30;
 const SCHEDULE_REROLL_COST = 120;
-const SCHEDULE_NON_TARGET_SIGNAL_CAP = 0.42;
-const MARKET_SIGNAL_MIN = 0.05;
-const MARKET_SIGNAL_MAX = 0.95;
-const MARKET_SIGNAL_START_MIN = 0.38;
-const MARKET_SIGNAL_START_MAX = 0.68;
-const MARKET_SIGNAL_NATURAL_DRIFT = 0.028;
-const MARKET_SIGNAL_NATURAL_CAP = 0.86;
 const MARKET_EVENT_DEFAULT_RECOVERY_DAYS = 4;
-const MARKET_EVENT_OFFSET_EPSILON = 0.004;
-const MARKET_SUPPLY_EFFECT_EXPONENT = 0.68;
-const MARKET_SUPPLY_EFFECT_MAX_DELTA = 0.12;
+const MARKET_DEMAND_EPSILON = 0.001;
+const MARKET_DEMAND_LAMP_UNIT = 4;
+const MARKET_BALANCE_VERSION = 3;
 const SEED_MARKET_MIN_MULTIPLIER = 0.65;
 const SEED_MARKET_MAX_MULTIPLIER = 1.45;
 const SEED_MARKET_DAILY_SHOCK = 0.16;
@@ -782,9 +777,10 @@ function parseCsv(text) {
 const REQUIRED_GAME_DATA_PATHS = [
   "data/crops.csv",
   "data/markets.csv",
-  "data/market_signals.csv",
-  "data/crop_market_response.csv",
-  "data/market_supply_effects.csv",
+  "data/market_demand_signals.csv",
+  "data/market_event_demand_effects.csv",
+  "data/supply_levels.csv",
+  "data/supply_crops.csv",
   "data/schedule_rumors.csv",
   "data/plant_sprites.csv",
   "data/grow_unit_slots.csv",
@@ -1073,38 +1069,55 @@ async function loadExternalData() {
       unlockHint: row.unlockHint
     }));
   });
-  await loadRequiredCsv("data/market_signals.csv", (rows) => {
-    MARKET_SIGNALS = rowsToObject(rows, (row) => ({
-      axisA: row.axisA,
-      axisALabel: row.axisALabel,
-      axisADescription: row.axisADescription,
-      axisB: row.axisB,
-      axisBLabel: row.axisBLabel,
-      axisBDescription: row.axisBDescription
-    }));
-  });
-  await loadRequiredCsv("data/crop_market_response.csv", (rows) => {
-    CROP_MARKET_RESPONSE = rows.reduce((entries, row) => {
+  await loadRequiredCsv("data/market_demand_signals.csv", (rows) => {
+    MARKET_DEMAND_PROFILES = rows.reduce((entries, row) => {
+      if (!row.marketId || !row.cropId) return entries;
       entries[row.marketId] ||= {};
+      const baseSignal = Math.max(1, toNumber(row.baseSignal, 1));
       entries[row.marketId][row.cropId] = {
-        axisAWeight: toNumber(row.axisAWeight),
-        axisBWeight: toNumber(row.axisBWeight),
-        synergy: toNumber(row.synergy),
-        synergyMode: row.synergyMode || "highHigh",
-        minMultiplier: toNumber(row.minMultiplier, 0.65),
-        maxMultiplier: toNumber(row.maxMultiplier, 1.75),
-        note: row.note
+        baseSignal,
+        maxSignal: Math.max(baseSignal, toNumber(row.maxSignal, baseSignal)),
+        recoveryPerDay: Math.max(0, toNumber(row.recoveryPerDay, 0)),
+        saleImpact: Math.max(0.01, toNumber(row.saleImpact, 1)),
+        sensitivity: Math.max(0, toNumber(row.sensitivity, 1)),
+        surgeSensitivity: Math.max(
+          0,
+          toNumber(row.surgeSensitivity, toNumber(row.sensitivity, 1))
+        ),
+        priceFloor: clamp(toNumber(row.priceFloor, 0.4), 0.05, 2),
+        priceCeiling: Math.max(1, toNumber(row.priceCeiling, 1.6)),
+        supplyBoostFactor: clamp(toNumber(row.supplyBoostFactor, 0), 0, 1),
+        note: row.note || ""
       };
       return entries;
     }, {});
   });
-  await loadRequiredCsv("data/market_supply_effects.csv", (rows) => {
-    MARKET_SUPPLY_EFFECTS = rows.reduce((entries, row) => {
-      if (!row.marketId || !row.cropId) return entries;
-      entries[row.marketId] ||= {};
-      entries[row.marketId][row.cropId] = {
-        axisAEffect: toNumber(row.axisAEffect, 0),
-        axisBEffect: toNumber(row.axisBEffect, 0),
+  await loadRequiredCsv("data/market_event_demand_effects.csv", (rows) => {
+    MARKET_EVENT_DEMAND_EFFECTS = rows.map((row) => ({
+      eventId: row.eventId,
+      marketId: row.marketId || "*",
+      cropId: row.cropId || "*",
+      operation: row.operation || "add",
+      value: toNumber(row.value, 0),
+      note: row.note || ""
+    })).filter((row) => row.eventId && row.value);
+  });
+  await loadRequiredCsv("data/supply_levels.csv", (rows) => {
+    SUPPLY_LEVELS = rows.map((row) => ({
+      level: Math.max(0, Math.floor(toNumber(row.level, 0))),
+      label: row.label || "",
+      minPoints: Math.max(0, toNumber(row.minPoints, 0)),
+      capacityMultiplier: Math.max(0.1, toNumber(row.capacityMultiplier, 1)),
+      recoveryMultiplier: Math.max(0.1, toNumber(row.recoveryMultiplier, 1)),
+      priceMultiplier: Math.max(0.1, toNumber(row.priceMultiplier, 1)),
+      windowDays: Math.max(1, toNumber(row.windowDays, 5))
+    })).sort((left, right) => left.minPoints - right.minPoints);
+  });
+  await loadRequiredCsv("data/supply_crops.csv", (rows) => {
+    SUPPLY_CROPS = rows.reduce((entries, row) => {
+      if (!row.cropId) return entries;
+      entries[row.cropId] = {
+        pointsPerUnit: Math.max(0, toNumber(row.pointsPerUnit, 0)),
         note: row.note || ""
       };
       return entries;
@@ -1117,19 +1130,17 @@ async function loadExternalData() {
       startDay: toNumber(row.startDay, 1),
       duration: toNumber(row.duration, 1),
       marketId: row.marketId,
-      axes: toList(row.axes || row.axis),
       cropIds: toList(row.cropIds || row.crops),
       strength: row.strength || "mid",
       chance: toNumber(row.chance, row.type === "rare" ? 0.45 : 1),
       jitter: toNumber(row.jitter, row.type === "rare" ? 2 : 0),
-      signalBoost: toNumber(row.signalBoost, 0),
-      signalDelta: toNumber(row.signalDelta, null),
+      signalOperation: row.signalOperation || "add",
+      signalValue: toNumber(row.signalValue, 0),
       recoveryDays: toNumber(row.recoveryDays, MARKET_EVENT_DEFAULT_RECOVERY_DAYS),
-      priceBoost: toNumber(row.priceBoost, 0),
       title: row.title,
       rumor: row.rumor,
       comment: row.comment
-    })).filter((entry) => entry.id && entry.marketId && entry.axes.length);
+    })).filter((entry) => entry.id && entry.marketId && entry.cropIds.length && entry.signalValue);
   });
   await loadRequiredCsv("data/plant_sprites.csv", (rows) => {
     PLANT_STAGE_SPRITES = rows.reduce((entries, row) => {
@@ -1382,8 +1393,6 @@ async function loadExternalData() {
       label: row.label,
       leadDays: Math.max(2, Math.round(toNumber(row.leadDays, 5))),
       duration: Math.max(1, Math.round(toNumber(row.duration, 2))),
-      allCropMod: row.allCropMod ? toNumber(row.allCropMod, 1) : undefined,
-      cropMods: row.cropMods ? toMap(row.cropMods) : undefined,
       fee: row.fee ? toNumber(row.fee, 0) : undefined
     })).filter((row) => row.id && row.forecastText && row.activeText);
   });
@@ -2509,8 +2518,11 @@ function createInitialState(mode = "day45") {
     timeUnlocked: false,
     marketFluctuation: {},
     seedMarket: createDefaultSeedMarketState(0),
-    marketSignals: {},
-    marketEventOffsets: [],
+    marketBalanceVersion: MARKET_BALANCE_VERSION,
+    marketDemandSignals: {},
+    marketDemandEvents: [],
+    marketSupplyPressure: {},
+    foodSupply: { shipments: [] },
     marketEventQueue: [],
     monthlySchedule: generateMonthlySchedule(),
     nextMarketForecastDay: 3,
@@ -2917,21 +2929,8 @@ function seedPriceTrend(cropId) {
 function updateMarketForDay(options = {}) {
   ensureMarketNewsState();
   updateSeedMarketForDay(state.day);
-  Object.keys(CROPS).forEach((cropId) => {
-    state.marketFluctuation[cropId] = randomBetween(0.94, 1.06);
-  });
-  ensureMarketSignalsState();
-  if (options.drift) driftMarketSignalsForDay();
-  if (state.debugMode) {
-    state.marketEventQueue = [];
-    state.marketEventOffsets = [];
-    state.event = null;
-    state.news = "DEBUG MODE // EVENTS DISABLED";
-    state.newsLabel = "EVENTS OFF";
-    if (!isMarketAvailable(selectedMarket)) selectedMarket = "lower";
-    return;
-  }
-  updateMarketEventOffsets();
+  ensureFoodSupplyState();
+  ensureMarketDemandState();
 
   state.marketEventQueue = state.marketEventQueue.filter((schedule) =>
     marketEventById(schedule.eventId) && state.day < schedule.endDay + 2
@@ -2984,6 +2983,7 @@ function updateMarketForDay(options = {}) {
       });
     }
   }
+  syncMarketDemandEvents();
   if (!isMarketAvailable(selectedMarket)) selectedMarket = "lower";
 }
 
@@ -3661,10 +3661,16 @@ function loadGame() {
   }
   ensureSeedMarketState();
   updateSeedMarketForDay(state.day);
-  state.marketSignals ||= {};
-  state.marketEventOffsets = Array.isArray(state.marketEventOffsets) ? state.marketEventOffsets : [];
-  ensureMarketSignalsState();
-  ensureMarketEventOffsetsState();
+  state.marketDemandSignals ||= {};
+  state.marketDemandEvents = Array.isArray(state.marketDemandEvents) ? state.marketDemandEvents : [];
+  state.marketSupplyPressure = state.marketSupplyPressure && typeof state.marketSupplyPressure === "object"
+    ? state.marketSupplyPressure
+    : {};
+  ensureFoodSupplyState();
+  ensureMarketDemandState();
+  upgradeMarketBalanceState();
+  ensureMarketSupplyPressureState();
+  ensureMarketDemandEventsState();
   state.audio ||= {};
   state.audio.noiseCanceling = Boolean(state.audio.noiseCanceling);
   ensureSupportAutomationState();
@@ -3708,9 +3714,8 @@ function loadGame() {
   if (isLaborTutorialActive()) suspendNonTutorialEventsForLaborTutorial();
   if (!isMarketAvailable(selectedMarket)) selectedMarket = "lower";
   const hasLegacyImmediateEvent = state.event && !state.marketEventQueue.length;
-  if (state.debugMode) updateMarketForDay();
-  if (!state.news || !Object.keys(state.marketSignals).length || hasLegacyImmediateEvent) updateMarketForDay();
-  applyScheduleMarketSignals();
+  if (!state.news || hasLegacyImmediateEvent) updateMarketForDay();
+  else syncMarketDemandEvents();
   if (loaded.sourceKey && loaded.sourceKey !== SAVE_KEY) saveGame();
 }
 
@@ -5581,213 +5586,437 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function cropEventMultiplier(cropId) {
-  if (!state.event) return 1;
-  return (state.event.allCropMod || 1) * ((state.event.cropMods && state.event.cropMods[cropId]) || 1);
+function marketDemandProfile(marketId, cropId) {
+  return MARKET_DEMAND_PROFILES[marketId]?.[cropId] || null;
 }
 
-function cropPrimaryMarket(cropId) {
-  return CROPS[cropId]?.primaryMarket || CROPS[cropId]?.unlock || "lower";
+function marketDemandPairs() {
+  return Object.entries(MARKET_DEMAND_PROFILES).flatMap(([marketId, crops]) =>
+    Object.keys(crops || {}).map((cropId) => ({ marketId, cropId }))
+  );
 }
 
-function isMarketSpecialty(cropId, marketId) {
-  if (cropId === "tomato" && (marketId === "lower" || marketId === "upper")) return true;
-  return cropPrimaryMarket(cropId) === marketId;
+function currentGameDayFloat() {
+  return Math.max(1, Number(state?.day) || 1) + clamp(Number(state?.dayProgress) || 0, 0, 0.9999);
 }
 
-function marketAxes(marketId) {
-  const profile = MARKET_SIGNALS[marketId];
-  return profile ? [profile.axisA, profile.axisB].filter(Boolean) : [];
+function supplyWindowDays() {
+  return Math.max(1, ...SUPPLY_LEVELS.map((entry) => Number(entry.windowDays) || 5), 5);
 }
 
-function ensureMarketSignalsState() {
-  state.marketSignals ||= {};
-  Object.entries(MARKET_SIGNALS).forEach(([marketId, profile]) => {
-    state.marketSignals[marketId] ||= {};
-    marketAxes(marketId).forEach((axis) => {
-      const value = Number(state.marketSignals[marketId][axis]);
-      state.marketSignals[marketId][axis] = Number.isFinite(value)
-        ? clamp(value, MARKET_SIGNAL_MIN, MARKET_SIGNAL_MAX)
-        : randomBetween(MARKET_SIGNAL_START_MIN, MARKET_SIGNAL_START_MAX);
-    });
-  });
-}
-
-function ensureMarketEventOffsetsState() {
-  state.marketEventOffsets = Array.isArray(state.marketEventOffsets) ? state.marketEventOffsets : [];
-  state.marketEventOffsets = state.marketEventOffsets
-    .map((offset) => ({
-      key: String(offset.key || ""),
-      groupKey: String(offset.groupKey || offset.key || ""),
-      eventId: String(offset.eventId || ""),
-      marketId: String(offset.marketId || ""),
-      axis: String(offset.axis || ""),
-      cropIds: Array.isArray(offset.cropIds) ? offset.cropIds : toList(offset.cropIds),
-      signalDelta: toNumber(offset.signalDelta, 0),
-      currentDelta: toNumber(offset.currentDelta, 0),
-      recoveryDays: Math.max(1, Math.round(toNumber(offset.recoveryDays, MARKET_EVENT_DEFAULT_RECOVERY_DAYS))),
-      priceBoost: Math.max(1, toNumber(offset.priceBoost, 1)),
-      endDay: Math.max(1, Math.round(toNumber(offset.endDay, Number(state.day) || 1)))
+function ensureFoodSupplyState() {
+  state.foodSupply = state.foodSupply && typeof state.foodSupply === "object"
+    ? state.foodSupply
+    : { shipments: [] };
+  const cutoff = currentGameDayFloat() - supplyWindowDays();
+  state.foodSupply.shipments = (Array.isArray(state.foodSupply.shipments) ? state.foodSupply.shipments : [])
+    .map((entry) => ({
+      day: Number(entry.day) || currentGameDayFloat(),
+      cropId: String(entry.cropId || ""),
+      qty: Math.max(0, Number(entry.qty) || 0),
+      points: Math.max(0, Number(entry.points) || 0)
     }))
-    .filter((offset) => offset.key && offset.marketId && offset.axis && Math.abs(offset.currentDelta) > MARKET_EVENT_OFFSET_EPSILON);
+    .filter((entry) => entry.cropId && entry.qty > 0 && entry.points > 0 && entry.day > cutoff);
+  return state.foodSupply;
 }
 
-function driftMarketSignalsForDay() {
-  ensureMarketSignalsState();
-  Object.entries(MARKET_SIGNALS).forEach(([marketId]) => {
-    marketAxes(marketId).forEach((axis) => {
-      const current = Number(state.marketSignals[marketId][axis]) || 0.5;
-      state.marketSignals[marketId][axis] = clamp(
-        current < MARKET_SIGNAL_NATURAL_CAP ? current + MARKET_SIGNAL_NATURAL_DRIFT : current,
-        MARKET_SIGNAL_MIN,
-        MARKET_SIGNAL_MAX
-      );
-    });
+function foodSupplyPoints() {
+  return ensureFoodSupplyState().shipments.reduce((sum, entry) => sum + entry.points, 0);
+}
+
+function fallbackSupplyLevel() {
+  return {
+    level: 0,
+    label: "未評価",
+    minPoints: 0,
+    capacityMultiplier: 1,
+    recoveryMultiplier: 1,
+    priceMultiplier: 1,
+    windowDays: 5
+  };
+}
+
+function currentSupplyLevel() {
+  const points = foodSupplyPoints();
+  return SUPPLY_LEVELS.reduce((selected, entry) =>
+    points >= entry.minPoints ? entry : selected
+  , SUPPLY_LEVELS[0] || fallbackSupplyLevel());
+}
+
+function nextSupplyLevel() {
+  const current = currentSupplyLevel();
+  return SUPPLY_LEVELS.find((entry) => entry.level > current.level) || null;
+}
+
+function marketDemandSupplyMultiplier(profile, key) {
+  const factor = clamp(Number(profile?.supplyBoostFactor) || 0, 0, 1);
+  const levelValue = Math.max(0.1, Number(currentSupplyLevel()?.[key]) || 1);
+  return 1 + (levelValue - 1) * factor;
+}
+
+function marketDemandTarget(marketId, cropId) {
+  const profile = marketDemandProfile(marketId, cropId);
+  if (!profile) return 0;
+  return profile.baseSignal * marketDemandSupplyMultiplier(profile, "capacityMultiplier");
+}
+
+function marketDemandMax(marketId, cropId) {
+  const profile = marketDemandProfile(marketId, cropId);
+  if (!profile) return 0;
+  const adjusted = profile.maxSignal * marketDemandSupplyMultiplier(profile, "capacityMultiplier");
+  return Math.max(marketDemandTarget(marketId, cropId), adjusted);
+}
+
+function marketDemandRecoveryPerDay(marketId, cropId) {
+  const profile = marketDemandProfile(marketId, cropId);
+  if (!profile) return 0;
+  return profile.recoveryPerDay * marketDemandSupplyMultiplier(profile, "recoveryMultiplier");
+}
+
+function marketDemandSupplyPriceMultiplier(marketId, cropId) {
+  const profile = marketDemandProfile(marketId, cropId);
+  return profile ? marketDemandSupplyMultiplier(profile, "priceMultiplier") : 1;
+}
+
+function ensureMarketDemandState() {
+  state.marketDemandSignals = state.marketDemandSignals && typeof state.marketDemandSignals === "object"
+    ? state.marketDemandSignals
+    : {};
+  marketDemandPairs().forEach(({ marketId, cropId }) => {
+    state.marketDemandSignals[marketId] ||= {};
+    const current = Number(state.marketDemandSignals[marketId][cropId]);
+    const fallback = marketDemandTarget(marketId, cropId);
+    state.marketDemandSignals[marketId][cropId] = clamp(
+      Number.isFinite(current) ? current : fallback,
+      0,
+      marketDemandMax(marketId, cropId)
+    );
   });
+  return state.marketDemandSignals;
+}
+
+function ensureMarketSupplyPressureState() {
+  state.marketSupplyPressure = state.marketSupplyPressure && typeof state.marketSupplyPressure === "object"
+    ? state.marketSupplyPressure
+    : {};
+  marketDemandPairs().forEach(({ marketId, cropId }) => {
+    state.marketSupplyPressure[marketId] ||= {};
+    const current = Number(state.marketSupplyPressure[marketId][cropId]);
+    state.marketSupplyPressure[marketId][cropId] = clamp(
+      Number.isFinite(current) ? current : 0,
+      0,
+      marketDemandMax(marketId, cropId)
+    );
+  });
+  return state.marketSupplyPressure;
+}
+
+function marketSupplyPressure(marketId, cropId) {
+  ensureMarketSupplyPressureState();
+  return Math.max(0, Number(state.marketSupplyPressure?.[marketId]?.[cropId]) || 0);
+}
+
+function upgradeMarketBalanceState() {
+  if ((Number(state.marketBalanceVersion) || 0) >= MARKET_BALANCE_VERSION) return;
+  ensureMarketDemandState();
+  ensureMarketSupplyPressureState();
+  marketDemandPairs().forEach(({ marketId, cropId }) => {
+    const target = marketDemandTarget(marketId, cropId);
+    const savedSignal = Number(state.marketDemandSignals?.[marketId]?.[cropId]);
+    const legacySignal = Math.max(0, Number.isFinite(savedSignal) ? savedSignal : target);
+    const legacyDeficit = Math.max(0, target - legacySignal);
+    state.marketSupplyPressure[marketId][cropId] = clamp(
+      marketSupplyPressure(marketId, cropId) + legacyDeficit,
+      0,
+      marketDemandMax(marketId, cropId)
+    );
+    state.marketDemandSignals[marketId][cropId] = target;
+  });
+  state.marketBalanceVersion = MARKET_BALANCE_VERSION;
+}
+
+function normalizeMarketDemandEvent(entry = {}) {
+  const operation = ["add", "subtract", "multiply"].includes(entry.operation)
+    ? entry.operation
+    : "add";
+  const value = Math.max(0, Number(entry.value) || 0);
+  return {
+    key: String(entry.key || ""),
+    source: String(entry.source || ""),
+    sourceId: String(entry.sourceId || ""),
+    label: String(entry.label || entry.sourceId || "EVENT"),
+    marketId: String(entry.marketId || ""),
+    cropId: String(entry.cropId || ""),
+    operation,
+    value,
+    remaining: operation === "add"
+      ? clamp(Number.isFinite(Number(entry.remaining)) ? Number(entry.remaining) : value, 0, value)
+      : value,
+    startsAt: Math.max(1, Number(entry.startsAt) || currentGameDayFloat()),
+    expiresAt: Math.max(1, Number(entry.expiresAt) || currentGameDayFloat())
+  };
+}
+
+function ensureMarketDemandEventsState() {
+  const now = currentGameDayFloat();
+  state.marketDemandEvents = (Array.isArray(state.marketDemandEvents) ? state.marketDemandEvents : [])
+    .map(normalizeMarketDemandEvent)
+    .filter((entry) =>
+      entry.key
+      && marketDemandProfile(entry.marketId, entry.cropId)
+      && entry.value > 0
+      && entry.expiresAt > now
+    );
+  return state.marketDemandEvents;
+}
+
+function expandMarketDemandTargets(marketId = "*", cropId = "*") {
+  return marketDemandPairs().filter((pair) =>
+    (marketId === "*" || pair.marketId === marketId)
+    && (cropId === "*" || pair.cropId === cropId)
+  );
+}
+
+function addMarketDemandEvent(effect = {}) {
+  ensureMarketDemandEventsState();
+  const now = currentGameDayFloat();
+  const startsAt = Math.max(1, Number(effect.startsAt) || now);
+  const expiresAt = Math.max(startsAt + MARKET_DEMAND_EPSILON, Number(effect.expiresAt) || startsAt + 1);
+  const operation = ["add", "subtract", "multiply"].includes(effect.operation)
+    ? effect.operation
+    : "add";
+  const value = Math.max(0, Number(effect.value) || 0);
+  if (!value || now < startsAt || now >= expiresAt) return;
+  expandMarketDemandTargets(effect.marketId || "*", effect.cropId || "*").forEach(({ marketId, cropId }) => {
+    const key = [String(effect.key || effect.sourceId || "event"), marketId, cropId].join(":");
+    if (state.marketDemandEvents.some((entry) => entry.key === key)) return;
+    state.marketDemandEvents.push(normalizeMarketDemandEvent({
+      key,
+      source: effect.source || "",
+      sourceId: effect.sourceId || "",
+      label: effect.label || effect.sourceId || "EVENT",
+      marketId,
+      cropId,
+      operation,
+      value,
+      remaining: value,
+      startsAt,
+      expiresAt
+    }));
+  });
+}
+
+function marketDemandEventsFor(marketId, cropId, options = {}) {
+  ensureMarketDemandEventsState();
+  return state.marketDemandEvents.filter((entry) =>
+    entry.marketId === marketId
+    && entry.cropId === cropId
+    && (options.includeSpent || entry.operation !== "add" || entry.remaining > MARKET_DEMAND_EPSILON)
+  );
+}
+
+function marketDemandSnapshot(marketId, cropId) {
+  ensureMarketDemandState();
+  ensureMarketSupplyPressureState();
+  return {
+    marketId,
+    cropId,
+    normal: Math.max(0, Number(state.marketDemandSignals?.[marketId]?.[cropId]) || 0),
+    supplyPressure: marketSupplyPressure(marketId, cropId),
+    events: marketDemandEventsFor(marketId, cropId, { includeSpent: true }).map((entry) => ({ ...entry }))
+  };
+}
+
+function marketDemandEventMultiplier(events = []) {
+  return events.reduce((multiplier, entry) =>
+    entry.operation === "multiply" ? multiplier * Math.max(0.05, entry.value) : multiplier
+  , 1);
+}
+
+function marketDemandSignalFromSnapshot(snapshot) {
+  const profile = marketDemandProfile(snapshot.marketId, snapshot.cropId);
+  if (!profile) return 0;
+  const added = snapshot.events.reduce((sum, entry) =>
+    entry.operation === "add" ? sum + Math.max(0, Number(entry.remaining) || 0) : sum
+  , 0);
+  const subtracted = snapshot.events.reduce((sum, entry) =>
+    entry.operation === "subtract" ? sum + Math.max(0, Number(entry.value) || 0) : sum
+  , 0);
+  const demand = (Math.max(0, snapshot.normal) + added - subtracted)
+    * marketDemandEventMultiplier(snapshot.events);
+  const supply = Math.max(0, Number(snapshot.supplyPressure) || 0);
+  return clamp(demand - supply, 0, marketDemandMax(snapshot.marketId, snapshot.cropId));
+}
+
+function effectiveMarketDemandSignal(marketId, cropId) {
+  return marketDemandSignalFromSnapshot(marketDemandSnapshot(marketId, cropId));
+}
+
+function consumeMarketDemandSnapshot(snapshot, qty = 1) {
+  const profile = marketDemandProfile(snapshot.marketId, snapshot.cropId);
+  if (!profile) return snapshot;
+  const supplied = Math.max(0, Number(qty) || 0) * profile.saleImpact;
+  snapshot.supplyPressure = clamp(
+    Math.max(0, Number(snapshot.supplyPressure) || 0) + supplied,
+    0,
+    marketDemandMax(snapshot.marketId, snapshot.cropId)
+  );
+  return snapshot;
+}
+
+function consumeMarketDemand(marketId, cropId, qty = 1) {
+  ensureMarketDemandState();
+  ensureMarketDemandEventsState();
+  ensureMarketSupplyPressureState();
+  const snapshot = marketDemandSnapshot(marketId, cropId);
+  consumeMarketDemandSnapshot(snapshot, qty);
+  state.marketSupplyPressure[marketId][cropId] = snapshot.supplyPressure;
+  lastDemandRenderSignature = "";
+  return effectiveMarketDemandSignal(marketId, cropId);
 }
 
 function scheduleEntryAbsoluteRange(entry, day = Number(state.day) || 1) {
-  const cycle = Math.floor((Math.max(1, Math.round(day)) - 1) / SCHEDULE_DAYS);
+  const cycle = Math.floor((Math.max(1, Math.floor(day)) - 1) / SCHEDULE_DAYS);
   const startDay = cycle * SCHEDULE_DAYS + scheduleClampDay(entry.startDay);
   const endDay = startDay + Math.max(1, Math.round(Number(entry.duration) || 1)) - 1;
   return { cycle, startDay, endDay };
 }
 
-function scheduleSignalDelta(entry) {
-  const hasExplicit = entry.signalDelta !== undefined && entry.signalDelta !== null && String(entry.signalDelta).trim() !== "";
-  const explicit = hasExplicit ? Number(entry.signalDelta) : NaN;
-  if (Number.isFinite(explicit)) return clamp(explicit, -0.65, 0.65);
-  const boost = Number(entry.signalBoost);
-  if (Number.isFinite(boost) && boost > 0) return clamp((boost - 0.5) * 0.7, -0.45, 0.45);
-  if (entry.strength === "rare") return 0.3;
-  if (entry.strength === "high") return 0.26;
-  return 0.22;
-}
-
-function eventOffsetKey(entry, range, axis) {
-  return [range.startDay, entry.id, entry.marketId, axis].join(":");
-}
-
-function updateMarketEventOffsets(day = Number(state.day) || 1) {
-  if (state?.debugMode) {
-    state.marketEventOffsets = [];
-    return;
-  }
-  ensureMarketEventOffsetsState();
-  const offsets = new Map(state.marketEventOffsets.map((offset) => [offset.key, offset]));
-  const activeKeys = new Set();
+function syncScheduledDemandEvents() {
+  const now = currentGameDayFloat();
   ensureMonthlyScheduleBasics(state.monthlySchedule || []).forEach((entry) => {
-    const range = scheduleEntryAbsoluteRange(entry, day);
-    if (day < range.startDay || day > range.endDay) return;
-    const signalDelta = scheduleSignalDelta(entry);
-    const recoveryDays = Math.max(1, Math.round(toNumber(entry.recoveryDays, MARKET_EVENT_DEFAULT_RECOVERY_DAYS)));
-    const priceBoost = Math.max(1, toNumber(entry.priceBoost, 1));
+    const range = scheduleEntryAbsoluteRange(entry, now);
+    const recoveryDays = Math.max(0, Number(entry.recoveryDays) || MARKET_EVENT_DEFAULT_RECOVERY_DAYS);
+    const expiresAt = range.endDay + recoveryDays + 1;
+    if (now < range.startDay || now >= expiresAt) return;
     const cropIds = scheduleCropIds(entry);
-    const groupKey = [range.startDay, entry.id, entry.marketId].join(":");
-    scheduleAxisList(entry).forEach((axis) => {
-      if (!axis) return;
-      const key = eventOffsetKey(entry, range, axis);
-      activeKeys.add(key);
-      offsets.set(key, {
-        key,
-        groupKey,
-        eventId: entry.id,
+    (cropIds.length ? cropIds : ["*"]).forEach((cropId) => {
+      addMarketDemandEvent({
+        key: ["schedule", range.startDay, entry.id, cropId].join(":"),
+        source: "schedule",
+        sourceId: entry.id,
+        label: entry.title || entry.id,
         marketId: entry.marketId,
-        axis,
-        cropIds,
-        signalDelta,
-        currentDelta: signalDelta,
-        recoveryDays,
-        priceBoost,
-        endDay: range.endDay
+        cropId,
+        operation: entry.signalOperation || "add",
+        value: Number(entry.signalValue) || 0,
+        startsAt: range.startDay,
+        expiresAt
       });
     });
   });
+}
 
-  offsets.forEach((offset, key) => {
-    if (activeKeys.has(key)) return;
-    const current = Number(offset.currentDelta) || 0;
-    const baseDelta = Number(offset.signalDelta) || current;
-    const step = Math.abs(baseDelta) / Math.max(1, Number(offset.recoveryDays) || MARKET_EVENT_DEFAULT_RECOVERY_DAYS);
-    if (current > 0) offset.currentDelta = Math.max(0, current - step);
-    else if (current < 0) offset.currentDelta = Math.min(0, current + step);
+function syncRandomMarketDemandEvents() {
+  const now = currentGameDayFloat();
+  (state.marketEventQueue || []).forEach((schedule) => {
+    const event = marketEventById(schedule.eventId);
+    if (!event || now < schedule.activeDay || now >= schedule.endDay) return;
+    MARKET_EVENT_DEMAND_EFFECTS
+      .filter((effect) => effect.eventId === schedule.eventId)
+      .forEach((effect, index) => {
+        addMarketDemandEvent({
+          key: ["market-event", schedule.id, index].join(":"),
+          source: "market_event",
+          sourceId: schedule.eventId,
+          label: event.label || effect.note || schedule.eventId,
+          marketId: effect.marketId,
+          cropId: effect.cropId,
+          operation: effect.operation,
+          value: effect.value,
+          startsAt: schedule.activeDay,
+          expiresAt: schedule.endDay
+        });
+      });
   });
-
-  state.marketEventOffsets = Array.from(offsets.values())
-    .filter((offset) => Math.abs(Number(offset.currentDelta) || 0) > MARKET_EVENT_OFFSET_EPSILON);
 }
 
-function marketSignalOffsetValue(marketId, axis) {
-  ensureMarketEventOffsetsState();
-  return state.marketEventOffsets
-    .filter((offset) => offset.marketId === marketId && offset.axis === axis)
-    .reduce((sum, offset) => sum + (Number(offset.currentDelta) || 0), 0);
+function syncMarketDemandEvents() {
+  ensureMarketDemandState();
+  ensureMarketDemandEventsState();
+  syncScheduledDemandEvents();
+  syncRandomMarketDemandEvents();
+  ensureMarketDemandEventsState();
 }
 
-function marketSignalValue(marketId, axis) {
-  ensureMarketSignalsState();
-  const base = Number(state.marketSignals?.[marketId]?.[axis]);
-  return clamp((Number.isFinite(base) ? base : 0.5) + marketSignalOffsetValue(marketId, axis), MARKET_SIGNAL_MIN, MARKET_SIGNAL_MAX);
-}
-
-function eventOffsetStrength(offset) {
-  const signalDelta = Math.abs(Number(offset.signalDelta) || 0);
-  const currentDelta = Math.abs(Number(offset.currentDelta) || 0);
-  return signalDelta > 0 ? clamp(currentDelta / signalDelta, 0, 1) : clamp(currentDelta, 0, 1);
-}
-
-function applyMarketSupplyEffect(cropId, marketId, qty = 1) {
-  const profile = MARKET_SIGNALS[marketId];
-  const effect = MARKET_SUPPLY_EFFECTS[marketId]?.[cropId];
-  if (!profile || !effect) return null;
-  ensureMarketSignalsState();
-  const marketSignals = state.marketSignals[marketId];
-  const rawAmount = Math.max(1, Number(qty) || 1);
-  const amount = Math.pow(rawAmount, MARKET_SUPPLY_EFFECT_EXPONENT);
-  const changes = [];
-  [
-    [profile.axisA, effect.axisAEffect],
-    [profile.axisB, effect.axisBEffect]
-  ].forEach(([axis, perUnit]) => {
-    if (!axis || !Number.isFinite(Number(perUnit)) || Number(perUnit) === 0) return;
-    const before = Number(marketSignals[axis]) || 0.5;
-    const delta = clamp(Number(perUnit) * amount, -MARKET_SUPPLY_EFFECT_MAX_DELTA, MARKET_SUPPLY_EFFECT_MAX_DELTA);
-    const after = clamp(before + delta, MARKET_SIGNAL_MIN, MARKET_SIGNAL_MAX);
-    marketSignals[axis] = after;
-    changes.push({ axis, before, after, delta: after - before });
+function advanceMarketDemandSignals(deltaDays = 0) {
+  const elapsed = Math.max(0, Number(deltaDays) || 0);
+  ensureFoodSupplyState();
+  ensureMarketDemandState();
+  ensureMarketSupplyPressureState();
+  syncMarketDemandEvents();
+  if (!elapsed) return;
+  marketDemandPairs().forEach(({ marketId, cropId }) => {
+    const current = Number(state.marketDemandSignals[marketId][cropId]) || 0;
+    const target = marketDemandTarget(marketId, cropId);
+    const amount = marketDemandRecoveryPerDay(marketId, cropId) * elapsed;
+    const next = current < target
+      ? Math.min(target, current + amount)
+      : Math.max(target, current - amount);
+    state.marketDemandSignals[marketId][cropId] = clamp(next, 0, marketDemandMax(marketId, cropId));
+    state.marketSupplyPressure[marketId][cropId] = Math.max(
+      0,
+      marketSupplyPressure(marketId, cropId) - amount
+    );
   });
-  return changes.length ? changes : null;
 }
 
-function cropDemandMultiplier(cropId, marketId = selectedMarket) {
-  const profile = MARKET_SIGNALS[marketId];
-  const response = CROP_MARKET_RESPONSE[marketId]?.[cropId];
-  if (!profile || !response || !isMarketSpecialty(cropId, marketId)) return 1;
-  const axisA = marketSignalValue(marketId, profile.axisA);
-  const axisB = marketSignalValue(marketId, profile.axisB);
-  const sharedHigh = Math.max(0, Math.min(axisA, axisB) - 0.5) * 2;
-  const sharedLow = Math.max(0, 0.5 - Math.max(axisA, axisB)) * 2;
-  const shared = response.synergyMode === "lowLow" ? sharedLow : sharedHigh;
-  const multiplier = 1
-    + (axisA - 0.5) * response.axisAWeight
-    + (axisB - 0.5) * response.axisBWeight
-    + shared * response.synergy;
-  return clamp(multiplier, response.minMultiplier, response.maxMultiplier);
+function marketDemandPriceMultiplier(cropId, marketId = selectedMarket, signalOverride = null) {
+  const profile = marketDemandProfile(marketId, cropId);
+  if (!profile) return 1;
+  const target = Math.max(MARKET_DEMAND_EPSILON, marketDemandTarget(marketId, cropId));
+  const hasSignalOverride = signalOverride !== null
+    && signalOverride !== undefined
+    && signalOverride !== ""
+    && Number.isFinite(Number(signalOverride));
+  const signal = hasSignalOverride
+    ? Number(signalOverride)
+    : effectiveMarketDemandSignal(marketId, cropId);
+  const ratio = signal / target;
+  const sensitivity = ratio >= 1
+    ? profile.surgeSensitivity
+    : profile.sensitivity;
+  const multiplier = 1 + (ratio - 1) * sensitivity;
+  return clamp(multiplier, profile.priceFloor, profile.priceCeiling);
 }
 
-function cropDemandNote(cropId, marketId = selectedMarket) {
-  if (!isMarketSpecialty(cropId, marketId)) {
-    if (marketId === "rebel") return "下層市場基準の1.5倍で固定";
-    if (marketId !== "medical" && marketId !== "lower") return "下層市場基準の半額で固定";
-    if (marketId === "medical") return "医療需要の影響なし";
-  }
-  const note = CROP_MARKET_RESPONSE[marketId]?.[cropId]?.note || "";
-  return scheduleCropEventMultiplier(cropId, marketId) > 1
-    ? (note ? `${note} / LOWNET噂補正` : "LOWNET噂補正")
-    : note;
+function marketDemandState(cropId, marketId = selectedMarket, signalOverride = null) {
+  const target = Math.max(MARKET_DEMAND_EPSILON, marketDemandTarget(marketId, cropId));
+  const hasSignalOverride = signalOverride !== null
+    && signalOverride !== undefined
+    && signalOverride !== ""
+    && Number.isFinite(Number(signalOverride));
+  const signal = hasSignalOverride
+    ? Number(signalOverride)
+    : effectiveMarketDemandSignal(marketId, cropId);
+  const ratio = signal / target;
+  if (ratio >= 1.15) return "surge";
+  if (ratio >= 0.8) return "ok";
+  if (ratio >= 0.45) return "low";
+  return "sat";
 }
 
+function marketDemandNote(cropId, marketId = selectedMarket) {
+  return marketDemandProfile(marketId, cropId)?.note || "";
+}
 
+function recordFoodSupplyResults(results = []) {
+  ensureFoodSupplyState();
+  const day = currentGameDayFloat();
+  results.filter(Boolean).forEach((result) => {
+    const crop = SUPPLY_CROPS[result.cropId];
+    const qty = Math.max(0, Number(result.qty) || 0);
+    if (!crop || !qty || crop.pointsPerUnit <= 0) return;
+    state.foodSupply.shipments.push({
+      day,
+      cropId: result.cropId,
+      qty,
+      points: qty * crop.pointsPerUnit
+    });
+  });
+  ensureFoodSupplyState();
+  lastDemandRenderSignature = "";
+}
 function scheduleClampDay(day) {
   return Math.max(1, Math.min(SCHEDULE_DAYS, Math.round(Number(day) || 1)));
 }
@@ -5821,14 +6050,14 @@ function normalizeScheduleEntry(entry = {}) {
     merged.startDay = Number(entry.startDay);
   }
   merged.type ||= "basic";
-  merged.axes = Array.isArray(merged.axes) ? merged.axes : toList(merged.axes || merged.axis);
   merged.cropIds = Array.isArray(merged.cropIds) ? merged.cropIds : toList(merged.cropIds || merged.crops || merged.cropId);
   merged.startDay = scheduleClampDay(merged.startDay);
   merged.duration = Math.max(1, Math.round(Number(merged.duration) || 1));
   merged.chance = Number.isFinite(Number(merged.chance)) ? Number(merged.chance) : (merged.type === "rare" ? 0.45 : 1);
   merged.jitter = Math.max(0, Math.round(Number(merged.jitter) || 0));
-  merged.signalBoost = Number.isFinite(Number(merged.signalBoost)) ? Number(merged.signalBoost) : 0;
-  merged.priceBoost = Number.isFinite(Number(merged.priceBoost)) ? Number(merged.priceBoost) : 0;
+  merged.signalOperation = ["add", "subtract", "multiply"].includes(merged.signalOperation) ? merged.signalOperation : "add";
+  merged.signalValue = Math.max(0, Number(merged.signalValue) || 0);
+  merged.recoveryDays = Math.max(0, Number(merged.recoveryDays) || MARKET_EVENT_DEFAULT_RECOVERY_DAYS);
   return merged;
 }
 
@@ -5866,69 +6095,24 @@ function scheduleEntriesForDay(day) {
   return (state.monthlySchedule || []).map(normalizeScheduleEntry).filter((entry) => scheduleEntryDays(entry).includes(day));
 }
 
-function scheduleSignalBoost(entry) {
-  if (Number(entry.signalBoost) > 0) return clamp(Number(entry.signalBoost), 0, 1);
-  if (entry.strength === "rare") return 0.94;
-  if (entry.strength === "high") return 0.9;
-  return 0.84;
-}
-
-function schedulePriceBoost(entry) {
-  if (Number(entry.priceBoost) > 0) return Math.max(1, Number(entry.priceBoost));
-  if (entry.strength === "rare") return 1.65;
-  if (entry.strength === "high") return 1.8;
-  return 1.55;
-}
-
-function scheduleCropEventMultiplier(cropId, marketId = selectedMarket) {
-  ensureMarketEventOffsetsState();
-  const groups = new Map();
-  state.marketEventOffsets.forEach((offset) => {
-    if (offset.marketId !== marketId || !offset.cropIds.includes(cropId)) return;
-    const strength = eventOffsetStrength(offset);
-    const current = groups.get(offset.groupKey) || { strength: 0, priceBoost: 1 };
-    current.strength = Math.max(current.strength, strength);
-    current.priceBoost = Math.max(current.priceBoost, Number(offset.priceBoost) || 1);
-    groups.set(offset.groupKey, current);
-  });
-  let multiplier = 1;
-  groups.forEach((entry) => {
-    multiplier = Math.max(multiplier, 1 + (entry.priceBoost - 1) * entry.strength);
-  });
-  return multiplier;
-}
-
 function activeScheduleEntries(day = state.day) {
   return scheduleEntriesForDay(scheduleCalendarDay(day));
 }
 
 function applyScheduleMarketSignals() {
-  ensureMarketSignalsState();
-  updateMarketEventOffsets();
-}
-
-function scheduleAxisList(entry) {
-  return Array.isArray(entry?.axes) ? entry.axes : toList(entry?.axes || entry?.axis);
+  syncMarketDemandEvents();
 }
 
 function scheduleCropIds(entry) {
   return Array.isArray(entry?.cropIds) ? entry.cropIds : toList(entry?.cropIds || entry?.crops || entry?.cropId);
 }
 
-function marketAxisLabels(marketId, axes) {
-  const profile = MARKET_SIGNALS[marketId];
-  return toList(axes).map((axis) => {
-    if (!profile) return axis || "---";
-    if (profile.axisA === axis) return profile.axisALabel;
-    if (profile.axisB === axis) return profile.axisBLabel;
-    return axis || "---";
-  }).filter(Boolean);
+function scheduleDemandEffectLabel(entry) {
+  const operation = entry.signalOperation || "add";
+  const value = Number(entry.signalValue) || 0;
+  if (operation === "multiply") return "需要シグナル ×" + value.toFixed(2);
+  return "需要シグナル " + (operation === "subtract" ? "-" : "+") + formatNumber(value);
 }
-
-function marketAxisLabel(marketId, axis) {
-  return marketAxisLabels(marketId, axis).join(" / ") || "---";
-}
-
 function scheduleCropLabel(entry) {
   const names = scheduleCropIds(entry).map((cropId) => CROPS[cropId]?.name || cropId).filter(Boolean);
   return names.length ? names.join(" / ") : "---";
@@ -5956,11 +6140,10 @@ function scheduleDayRange(entry) {
 }
 
 function scheduleDetailMarkup(entry) {
-  const axisLabel = marketAxisLabel(entry.marketId, scheduleAxisList(entry));
   return '<div class="schedule-detail-card ' + (entry.strength || 'mid') + '">'
     + '<div class="schedule-detail-meta"><span>' + escapeHtml(scheduleDayRange(entry)) + '</span><strong>' + escapeHtml(scheduleStrengthLabel(entry.strength)) + '</strong></div>'
     + '<p class="schedule-detail-rumor">' + escapeHtml(entry.rumor) + '</p>'
-    + '<dl><dt>CROP</dt><dd>' + escapeHtml(scheduleCropLabel(entry)) + '</dd><dt>MARKET</dt><dd>' + escapeHtml(scheduleMarketLabel(entry)) + '</dd><dt>SIGNAL</dt><dd>' + escapeHtml(axisLabel) + '</dd></dl>'
+    + '<dl><dt>CROP</dt><dd>' + escapeHtml(scheduleCropLabel(entry)) + '</dd><dt>MARKET</dt><dd>' + escapeHtml(scheduleMarketLabel(entry)) + '</dd><dt>SIGNAL</dt><dd>' + escapeHtml(scheduleDemandEffectLabel(entry)) + '</dd></dl>'
     + '<blockquote>' + escapeHtml(entry.comment) + '</blockquote>'
     + '</div>';
 }
@@ -5989,6 +6172,7 @@ function rerollMonthlySchedule() {
   state.money -= SCHEDULE_REROLL_COST;
   addRadarSuspicion(radarPurchaseSuspicion(SCHEDULE_REROLL_COST));
   state.monthlySchedule = generateMonthlySchedule();
+  state.marketDemandEvents = (state.marketDemandEvents || []).filter((entry) => entry.source !== "schedule");
   applyScheduleMarketSignals();
   state.log = "LOWNET rumors reinvestigated. Monthly schedule updated.";
   playSound("market_select", 0.22);
@@ -6027,13 +6211,16 @@ function renderSchedule() {
 function baseMarketUnitPrice(batch, marketId = selectedMarket, options = {}) {
   const crop = CROPS[batch.crop];
   const quality = QUALITY[batch.quality];
+  const market = MARKETS[marketId];
+  if (!crop || !quality || !market) return 0;
+  const demandMultiplier = options.ignoreDemand
+    ? 1
+    : marketDemandPriceMultiplier(batch.crop, marketId, options.signal);
   let price = crop.basePrice
     * quality.multiplier
-    * (MARKETS[marketId].multipliers[batch.crop] || 0.4)
-    * state.marketFluctuation[batch.crop]
-    * (options.ignoreDemand ? 1 : cropDemandMultiplier(batch.crop, marketId))
-    * (options.ignoreDemand ? 1 : scheduleCropEventMultiplier(batch.crop, marketId))
-    * cropEventMultiplier(batch.crop);
+    * (market.multipliers[batch.crop] || 0.4)
+    * demandMultiplier
+    * (options.ignoreDemand ? 1 : marketDemandSupplyPriceMultiplier(marketId, batch.crop));
 
   if (isInventoryBatchDegraded(batch)) price *= 0.5;
   if (marketId === "upper" && batch.quality === "C") price *= 0.65;
@@ -6041,24 +6228,37 @@ function baseMarketUnitPrice(batch, marketId = selectedMarket, options = {}) {
   return price;
 }
 
-function lowerMarketReferencePrice(batch) {
-  return baseMarketUnitPrice(batch, "lower");
-}
-
-function getUnitPrice(batch, marketId = selectedMarket) {
-  let price;
-  if (marketId !== "medical" && marketId !== "lower" && !isMarketSpecialty(batch.crop, marketId)) {
-    price = lowerMarketReferencePrice(batch) * (marketId === "rebel" ? 1.5 : 0.5);
-  } else {
-    price = baseMarketUnitPrice(batch, marketId);
-  }
-  return Math.max(1, Math.round(price));
+function getUnitPrice(batch, marketId = selectedMarket, options = {}) {
+  return Math.max(1, Math.round(baseMarketUnitPrice(batch, marketId, options)));
 }
 
 function getQuote(cropId, marketId = selectedMarket) {
   return getUnitPrice({ crop: cropId, quality: "B", degraded: false }, marketId);
 }
 
+function quoteBatchSale(batch, marketId = selectedMarket, qty = 1, demandSnapshot = null) {
+  const amount = Math.max(0, Math.floor(Number(qty) || 0));
+  const snapshot = demandSnapshot || marketDemandSnapshot(marketId, batch.crop);
+  const prices = [];
+  let revenue = 0;
+  for (let index = 0; index < amount; index += 1) {
+    const signal = marketDemandSignalFromSnapshot(snapshot);
+    const price = getUnitPrice(batch, marketId, { signal });
+    prices.push(price);
+    revenue += price;
+    consumeMarketDemandSnapshot(snapshot, 1);
+  }
+  return {
+    qty: amount,
+    revenue,
+    unitPrice: amount ? Math.max(1, Math.round(revenue / amount)) : 0,
+    firstUnitPrice: prices[0] || 0,
+    finalUnitPrice: prices[prices.length - 1] || 0,
+    afterSignal: marketDemandSignalFromSnapshot(snapshot),
+    prices,
+    snapshot
+  };
+}
 function bestAvailableQuote(cropOrBatch) {
   const batch = typeof cropOrBatch === "string"
     ? { crop: cropOrBatch, quality: "B", degraded: false }
@@ -10297,17 +10497,23 @@ function buyEquipment(itemId) {
 function inventorySaleQuote(marketId = selectedMarket) {
   refreshInventoryAges();
   if (!isMarketAvailable(marketId)) return { marketId, items: [], qty: 0, revenue: 0 };
+  const demandByCrop = new Map();
   const items = state.inventory.flatMap((batch) => {
     const qty = Math.max(0, Number(batch.qty) || 0);
     if (!qty || !canSellCropToMarket(batch.crop, marketId)) return [];
     if (isInventoryBatchDegraded(batch)) batch.degraded = true;
-    const unitPrice = getUnitPrice(batch, marketId);
+    const snapshot = demandByCrop.get(batch.crop) || marketDemandSnapshot(marketId, batch.crop);
+    demandByCrop.set(batch.crop, snapshot);
+    const quote = quoteBatchSale(batch, marketId, qty, snapshot);
     return [{
       batchId: batch.id,
       cropId: batch.crop,
       qty,
-      unitPrice,
-      revenue: unitPrice * qty
+      unitPrice: quote.unitPrice,
+      firstUnitPrice: quote.firstUnitPrice,
+      finalUnitPrice: quote.finalUnitPrice,
+      afterSignal: quote.afterSignal,
+      revenue: quote.revenue
     }];
   });
   return {
@@ -10329,10 +10535,9 @@ function executeBatchSale(batchId, options = {}) {
   const qty = Math.max(1, Math.min(availableQty, Number(requestedQty) || 1));
   const batchAge = inventoryAgeDays(batch);
   if (isInventoryBatchDegraded(batch)) batch.degraded = true;
-  const unitPrice = Number.isFinite(Number(options.unitPrice))
-    ? Math.max(1, Math.round(Number(options.unitPrice)))
-    : getUnitPrice(batch, marketId);
-  const revenue = unitPrice * qty;
+  const quote = quoteBatchSale(batch, marketId, qty);
+  const unitPrice = quote.unitPrice;
+  const revenue = quote.revenue;
   const moneyBeforeSale = state.money;
   const premiumSale = unitPrice >= Math.round((CROPS[batch.crop]?.basePrice || unitPrice) * (batch.quality === "S" ? 1.25 : 1.15));
 
@@ -10355,7 +10560,7 @@ function executeBatchSale(batchId, options = {}) {
       state.tradeStats.foodToRebels = (Number(state.tradeStats.foodToRebels) || 0) + revenue;
     }
   }
-  if (options.applySupply !== false) applyMarketSupplyEffect(batch.crop, marketId, qty);
+  consumeMarketDemand(marketId, batch.crop, qty);
   const remainingQty = Math.max(0, Number(batch.qty) || 0);
   if (!remainingQty) {
     state.inventory = state.inventory.filter((item) => item.id !== batchId);
@@ -10371,6 +10576,9 @@ function executeBatchSale(batchId, options = {}) {
     marketName: MARKETS[marketId]?.name || marketId,
     qty,
     unitPrice,
+    firstUnitPrice: quote.firstUnitPrice,
+    finalUnitPrice: quote.finalUnitPrice,
+    afterSignal: quote.afterSignal,
     revenue,
     quality: batch.quality,
     age: batchAge,
@@ -10394,6 +10602,9 @@ function aggregateSaleContexts(results) {
     }
     current.qty += result.qty;
     current.revenue += result.revenue;
+    current.unitPrice = Math.max(1, Math.round(current.revenue / current.qty));
+    current.finalUnitPrice = result.finalUnitPrice;
+    current.afterSignal = result.afterSignal;
     current.age = Math.max(current.age, result.age);
     current.ageDays = current.age;
     current.aged = current.aged || result.aged;
@@ -10451,13 +10662,14 @@ function updateSaleRowAfterTransaction(result) {
 
   const batchQty = Math.max(0, Number(batch.qty) || 0);
   const nextQty = Math.max(1, Math.min(batchQty, saleQuantities[batch.id] || 1));
-  const nextUnitPrice = getUnitPrice(batch, result.marketId);
+  const nextQuote = quoteBatchSale(batch, result.marketId, nextQty);
+  const nextUnitPrice = nextQuote.firstUnitPrice;
   if (cropQty) cropQty.textContent = `${result.cropName} x${batchQty}`;
   if (qtyValue) qtyValue.textContent = String(nextQty);
   if (qtyButtons[0]) qtyButtons[0].disabled = nextQty <= 1;
   if (qtyButtons[1]) qtyButtons[1].disabled = nextQty >= batchQty;
   if (unitValue) unitValue.textContent = `₡${formatNumber(nextUnitPrice)}`;
-  if (sellButton) sellButton.textContent = `C${formatNumber(nextUnitPrice * nextQty)} SELL`;
+  if (sellButton) sellButton.textContent = `C${formatNumber(nextQuote.revenue)} SELL`;
 }
 
 function scheduleSalePersistence() {
@@ -10495,8 +10707,10 @@ function finishManualSale(results, options = {}) {
   const marketId = representative.marketId;
   const fromMoney = validResults[0].fromMoney;
   addRadarSuspicion(radarShipmentSuspicion(totalQty, totalRevenue));
+  recordFoodSupplyResults(validResults);
 
   validResults.forEach(updateSaleRowAfterTransaction);
+  renderMarketDemandPanel(true);
   updateInventorySummary();
   updateSellAllButton();
   animateMoneyCounter(fromMoney, state.money);
@@ -10570,20 +10784,12 @@ function sellAllInventory(sourceElement) {
 
   const sourceRect = feedbackRect(sourceElement);
   const results = [];
-  const supplyByCrop = {};
   quote.items.forEach((item) => {
     const result = executeBatchSale(item.batchId, {
       marketId: quote.marketId,
-      qty: item.qty,
-      unitPrice: item.unitPrice,
-      applySupply: false
+      qty: item.qty
     });
-    if (!result) return;
-    results.push(result);
-    supplyByCrop[result.cropId] = (supplyByCrop[result.cropId] || 0) + result.qty;
-  });
-  Object.entries(supplyByCrop).forEach(([cropId, qty]) => {
-    applyMarketSupplyEffect(cropId, quote.marketId, qty);
+    if (result) results.push(result);
   });
   finishManualSale(results, {
     sourceElement,
@@ -10955,58 +11161,50 @@ function buySeedsByRobot(robot) {
 }
 function sellInventoryByRobot(cropId, marketId) {
   if (!canSellCropToMarket(cropId, marketId)) return false;
-  const batches = state.inventory.filter((item) => item.crop === cropId && Math.max(0, Number(item.qty) || 0) > 0);
-  if (!batches.length) return false;
+  const batchIds = state.inventory
+    .filter((item) => item.crop === cropId && Math.max(0, Number(item.qty) || 0) > 0)
+    .map((item) => item.id);
+  if (!batchIds.length) return false;
 
-  let totalQty = 0;
-  let totalRevenue = 0;
-  let premiumSale = false;
-  let agedSale = false;
-  let maxBatchAge = 0;
-  batches.forEach((batch) => {
-    const amount = Math.max(0, Number(batch.qty) || 0);
-    const batchAge = inventoryAgeDays(batch);
-    if (isInventoryBatchDegraded(batch)) batch.degraded = true;
-    const unitPrice = getUnitPrice(batch, marketId);
-    const revenue = unitPrice * amount;
-    if (amount <= 0) return;
-    if (batchAge >= 1) agedSale = true;
-    maxBatchAge = Math.max(maxBatchAge, batchAge);
-    totalQty += amount;
-    totalRevenue += revenue;
-    premiumSale = premiumSale || unitPrice >= bestAvailableQuote(batch) * 0.98;
-    trackSaleAnalytics(batch, marketId, amount, unitPrice, revenue, unitPrice >= bestAvailableQuote(batch) * 0.98);
-    batch.qty = 0;
-  });
+  const results = batchIds.map((batchId) => {
+    const batch = state.inventory.find((item) => item.id === batchId);
+    return batch ? executeBatchSale(batchId, { marketId, qty: batch.qty }) : null;
+  }).filter(Boolean);
+  if (!results.length) return false;
 
-  if (totalQty <= 0) return false;
-  state.money += totalRevenue;
+  const totalQty = results.reduce((sum, result) => sum + result.qty, 0);
+  const totalRevenue = results.reduce((sum, result) => sum + result.revenue, 0);
+  const premiumSale = results.some((result) => result.premium);
+  const agedSale = results.some((result) => result.aged);
+  const maxBatchAge = Math.max(0, ...results.map((result) => result.ageDays || 0));
+  recordFoodSupplyResults(results);
   addRadarSuspicion(radarShipmentSuspicion(totalQty, totalRevenue));
-  state.inventory = state.inventory.filter((item) => item.crop !== cropId || item.qty > 0);
-  state.tradeStats.byCrop ||= {};
-  state.tradeStats.byMarket ||= { lower: 0, medical: 0, upper: 0, rebel: 0 };
-  state.tradeStats.unitsSold = (Number(state.tradeStats.unitsSold) || 0) + totalQty;
-  state.tradeStats.revenue = (Number(state.tradeStats.revenue) || 0) + totalRevenue;
-  state.tradeStats.byCrop[cropId] = (state.tradeStats.byCrop[cropId] || 0) + totalQty;
-  state.tradeStats.byMarket[marketId] = (state.tradeStats.byMarket[marketId] || 0) + totalRevenue;
-  state.tradeStats.byMarketQty ||= { lower: 0, medical: 0, upper: 0, rebel: 0 };
-  state.tradeStats.byMarketQty[marketId] = (state.tradeStats.byMarketQty[marketId] || 0) + totalQty;
-  if (marketId === "rebel") {
-    if (CROPS[cropId]?.category === "weapon") state.tradeStats.weaponsToRebels += totalQty;
-    else state.tradeStats.foodToRebels += totalQty;
-  }
-  applyMarketSupplyEffect(cropId, marketId, totalQty);
 
   const cropName = CROPS[cropId]?.name || cropId;
   const marketName = MARKETS[marketId]?.name || marketId;
-  botActionLog(`BOT // ${cropName} shipped to ${marketName}. x${totalQty} +C${formatNumber(totalRevenue)}`);
+  botActionLog("BOT // " + cropName + " shipped to " + marketName + ". x" + totalQty + " +C" + formatNumber(totalRevenue));
   playSoundFirst(["sell_crop", "sale"], premiumSale ? 0.18 : 0.12);
-  const commsContext = { cropId, cropName, marketId, marketName, qty: totalQty, revenue: totalRevenue, automated: true, age: maxBatchAge, ageDays: maxBatchAge, aged: agedSale };
+  const commsContext = {
+    cropId,
+    cropName,
+    marketId,
+    marketName,
+    qty: totalQty,
+    revenue: totalRevenue,
+    automated: true,
+    age: maxBatchAge,
+    ageDays: maxBatchAge,
+    aged: agedSale
+  };
   triggerComms("first_sale", commsContext);
   if (agedSale) triggerComms("first_aged_sale", commsContext);
   triggerComms("sale", commsContext);
+  checkFactionProgression();
+  lastInventoryRenderSignature = "";
+  lastDemandRenderSignature = "";
   return true;
 }
+
 function sellConfiguredInventoryByRobot() {
   let soldAny = false;
   configuredShippingEntries().forEach(([cropId, config]) => {
@@ -11880,6 +12078,7 @@ function realtimeTick() {
     return;
   }
   state.dayProgress += deltaDays;
+  advanceMarketDemandSignals(deltaDays);
   let dayBoundaryGuard = 0;
   while (state.dayProgress >= 1 && !state.ended && !isTimedModeCountdownBlocking() && dayBoundaryGuard < 3) {
     state.dayProgress -= 1;
@@ -14266,6 +14465,151 @@ function marketCarouselPosition(marketId) {
   return offset < 0 ? "far-left" : "far-right";
 }
 
+const MARKET_DEMAND_STATE_LABELS = Object.freeze({
+  surge: "買付殺到",
+  ok: "買付あり",
+  low: "残りわずか",
+  sat: "市場飽和"
+});
+
+function marketDemandWaveParams(marketId, cropId, lampCount) {
+  const recovery = marketDemandRecoveryPerDay(marketId, cropId);
+  const step = Math.round(clamp(320 - recovery * 18, 70, 300));
+  const duration = Math.round(lampCount * step + 1500 + Math.max(0, 12 - recovery) * 180);
+  return { step, duration };
+}
+
+function marketDemandLampMarkup(marketId, cropId, signal) {
+  const target = Math.max(MARKET_DEMAND_EPSILON, marketDemandTarget(marketId, cropId));
+  const maxSignal = Math.max(target, marketDemandMax(marketId, cropId));
+  const lampCount = Math.max(1, Math.ceil(maxSignal / MARKET_DEMAND_LAMP_UNIT));
+  const litFull = Math.floor(signal / MARKET_DEMAND_LAMP_UNIT);
+  const fraction = signal / MARKET_DEMAND_LAMP_UNIT - litFull;
+  const wave = marketDemandWaveParams(marketId, cropId, lampCount);
+  const lamps = Array.from({ length: lampCount }, (_, index) => {
+    const midpoint = (index + 0.5) * MARKET_DEMAND_LAMP_UNIT;
+    const ratio = midpoint / target;
+    const zone = ratio < 0.45 ? "sat" : ratio < 0.8 ? "low" : ratio <= 1.15 ? "ok" : "surge";
+    const lit = index < litFull ? "lit" : (index === litFull && fraction > 0.2 ? "lit half" : "");
+    return `<span class="demand-lamp ${lit} zone-${zone}" style="--lamp-index:${index}" aria-hidden="true"></span>`;
+  }).join("");
+  return `<div class="demand-lamp-track" style="--wave-duration:${wave.duration}ms;--wave-step:${wave.step}ms">${lamps}</div>`;
+}
+
+function marketDemandEventChipMarkup(marketId, cropId) {
+  const now = currentGameDayFloat();
+  return marketDemandEventsFor(marketId, cropId).map((entry) => {
+    const value = entry.operation === "add"
+      ? "+" + formatNumber(entry.remaining)
+      : entry.operation === "subtract"
+        ? "-" + formatNumber(entry.value)
+        : "×" + entry.value.toFixed(2);
+    const remainingDays = Math.max(0, entry.expiresAt - now).toFixed(1);
+    return `<span class="demand-event-chip">${escapeHtml(entry.label)} ${value} / 残${remainingDays}日</span>`;
+  }).join("");
+}
+
+function marketDemandRenderSignature() {
+  const pairs = (MARKETS[selectedMarket]?.accepts || []).map((cropId) => {
+    const signal = effectiveMarketDemandSignal(selectedMarket, cropId);
+    const supplyPressure = marketSupplyPressure(selectedMarket, cropId);
+    const events = marketDemandEventsFor(selectedMarket, cropId, { includeSpent: true })
+      .map((entry) => [entry.key, entry.operation, Number(entry.remaining).toFixed(1), Number(entry.value).toFixed(2), Number(entry.expiresAt).toFixed(2)].join(":"))
+      .join(",");
+    return [cropId, signal.toFixed(1), supplyPressure.toFixed(1), getQuote(cropId, selectedMarket), events].join("|");
+  });
+  return [
+    selectedMarket,
+    currentSupplyLevel().level,
+    foodSupplyPoints().toFixed(1),
+    state.event?.id || "",
+    state.marketDemandEvents?.length ? currentGameDayFloat().toFixed(1) : "",
+    pairs.join(";")
+  ].join("::");
+}
+
+function renderMarketDemandPanel(force = false) {
+  const summary = document.getElementById("market-signal-row");
+  const grid = document.getElementById("price-grid");
+  if (!summary || !grid || !MARKETS[selectedMarket]) return;
+  ensureFoodSupplyState();
+  ensureMarketDemandState();
+  syncMarketDemandEvents();
+  const signature = marketDemandRenderSignature();
+  if (!force && signature === lastDemandRenderSignature && grid.childElementCount) return;
+  lastDemandRenderSignature = signature;
+
+  const points = foodSupplyPoints();
+  const level = currentSupplyLevel();
+  const next = nextSupplyLevel();
+  const rangeStart = Number(level.minPoints) || 0;
+  const rangeEnd = next ? Number(next.minPoints) : Math.max(rangeStart, points);
+  const progress = next && rangeEnd > rangeStart
+    ? clamp((points - rangeStart) / (rangeEnd - rangeStart), 0, 1)
+    : 1;
+  const signedPercent = (value) => {
+    const percent = Math.round((Number(value) - 1) * 100);
+    return (percent > 0 ? "+" : "") + percent + "%";
+  };
+  const supplyCropMarkup = Object.keys(SUPPLY_CROPS).map((cropId) =>
+    `<span><img src="${CROPS[cropId]?.icon || ""}" alt="">${escapeHtml(CROPS[cropId]?.name || cropId)}</span>`
+  ).join("");
+  summary.innerHTML = `
+    <article class="demand-supply-summary">
+      <div class="demand-supply-level">
+        <span>SHIPMENT LEVEL // 出荷LV</span>
+        <strong>LV ${level.level} <b>${escapeHtml(level.label)}</b></strong>
+        <small>直近${formatNumber(level.windowDays || supplyWindowDays())}日 ${points.toFixed(1)} pt${next ? ` / NEXT ${formatNumber(next.minPoints)} pt` : " / MAX"}</small>
+      </div>
+      <div class="demand-supply-progress"><i style="width:${Math.round(progress * 100)}%"></i></div>
+      <div class="demand-supply-effects">
+        <span>商品作物の需要余力 ${signedPercent(level.capacityMultiplier)}</span>
+        <span>需要回復 ${signedPercent(level.recoveryMultiplier)}</span>
+        <span>価格基盤 ${signedPercent(level.priceMultiplier)}</span>
+      </div>
+      <div class="demand-supply-crops">${supplyCropMarkup}</div>
+    </article>
+    <div class="demand-legend" aria-label="需要シグナル凡例">
+      <span class="legend-surge"><i></i>買付殺到</span>
+      <span class="legend-ok"><i></i>買付あり</span>
+      <span class="legend-low"><i></i>残りわずか</span>
+      <span class="legend-sat"><i></i>市場飽和</span>
+      <span class="legend-off"><i></i>消灯 = 消費済み</span>
+      <span class="legend-wave">明滅の速さ = 回復速度</span>
+    </div>`;
+
+  grid.innerHTML = (MARKETS[selectedMarket].accepts || []).map((cropId) => {
+    const crop = CROPS[cropId];
+    const profile = marketDemandProfile(selectedMarket, cropId);
+    if (!crop || !profile) return "";
+    const signal = effectiveMarketDemandSignal(selectedMarket, cropId);
+    const target = marketDemandTarget(selectedMarket, cropId);
+    const supplyPressure = marketSupplyPressure(selectedMarket, cropId);
+    const stateId = marketDemandState(cropId, selectedMarket, signal);
+    const affinity = Number(MARKETS[selectedMarket].multipliers[cropId]) || 0.4;
+    const baseline = Math.max(1, Math.round(crop.basePrice * affinity));
+    const eventChips = marketDemandEventChipMarkup(selectedMarket, cropId);
+    return `<article class="demand-crop-row state-${stateId}" style="--crop-color:${crop.color}">
+      <div class="demand-crop-id">
+        <span class="demand-crop-icon"><img src="${crop.icon}" alt=""></span>
+        <span><strong>${escapeHtml(crop.name)}</strong><small>市場相性 ×${affinity.toFixed(2)} / 基準 ₡${formatNumber(baseline)}</small></span>
+      </div>
+      <div class="demand-signal-body">
+        <div class="demand-signal-meta">
+          <span class="demand-state-chip">${MARKET_DEMAND_STATE_LABELS[stateId]}</span>
+          <span class="demand-signal-number">需要 ${formatNumber(signal)} / 標準 ${formatNumber(target)} / 供給圧 ${formatNumber(supplyPressure)}</span>
+          ${eventChips}
+        </div>
+        ${marketDemandLampMarkup(selectedMarket, cropId, signal)}
+        <small class="demand-profile-note">${escapeHtml(marketDemandNote(cropId, selectedMarket))}</small>
+      </div>
+      <div class="demand-price-block">
+        <strong>₡${formatNumber(getQuote(cropId, selectedMarket))}</strong>
+        <small>B QUALITY / NEXT</small>
+      </div>
+    </article>`;
+  }).join("");
+}
 function renderMarkets(direction = "") {
   const selector = document.getElementById("market-selector");
   if (selector) {
@@ -14310,36 +14654,7 @@ function renderMarkets(direction = "") {
     }).join("");
   }
 
-  const signalProfile = MARKET_SIGNALS[selectedMarket];
-  const signals = state.marketSignals?.[selectedMarket] || {};
-  document.getElementById("market-signal-row").innerHTML = signalProfile ? [signalProfile.axisA, signalProfile.axisB].map((axis, index) => {
-    const label = index === 0 ? signalProfile.axisALabel : signalProfile.axisBLabel;
-    const description = index === 0 ? signalProfile.axisADescription : signalProfile.axisBDescription;
-    const value = marketSignalValue(selectedMarket, axis);
-    return `<div class="market-signal">
-      <span>${label}</span>
-      <strong>${Math.round(value * 100)}%</strong>
-      <i style="--signal:${Math.round(value * 100)}%"></i>
-      <small>${description}</small>
-    </div>`;
-  }).join("") : "";
-
-  document.getElementById("price-grid").innerHTML = Object.entries(CROPS).filter(([cropId]) =>
-    canMarketAcceptCrop(cropId, selectedMarket)
-  ).map(([cropId, crop]) => {
-    const fluctuation = state.marketFluctuation[cropId];
-    const demand = cropDemandMultiplier(cropId, selectedMarket);
-    const scheduleBoost = scheduleCropEventMultiplier(cropId, selectedMarket);
-    const totalTrend = fluctuation * demand * scheduleBoost * cropEventMultiplier(cropId);
-    const delta = Math.round((totalTrend - 1) * 100);
-    const trendClass = delta > 0 ? "up" : delta < 0 ? "down" : "";
-    return `<div class="price-cell" style="--crop-color:${crop.color}">
-      <header><img src="${crop.icon}" alt=""><strong>${crop.name}</strong></header>
-      <span class="quote">C${formatNumber(getQuote(cropId))}</span>
-      <span class="trend ${trendClass}">${delta >= 0 ? "UP" : "DOWN"} ${Math.abs(delta)}% TODAY</span>
-      <span class="demand-note">${cropDemandNote(cropId, selectedMarket)}</span>
-    </div>`;
-  }).join("");
+  renderMarketDemandPanel(true);
 
   renderInventory();
 }
@@ -14410,7 +14725,7 @@ function renderInventory() {
     const accepted = canSellCropToMarket(batch.crop, selectedMarket);
     const batchAge = inventoryAgeDays(batch);
     const degraded = isInventoryBatchDegraded(batch);
-    const unitPrice = accepted ? getUnitPrice(batch) : 0;
+    const saleQuote = accepted ? quoteBatchSale(batch, selectedMarket, qty) : null;
     return `<div class="inventory-row" data-inventory-id="${batch.id}" style="--crop-color:${crop.color};--quality-color:${QUALITY[batch.quality].color}">
       <div class="inventory-crop">
         <span class="crop-glyph"><img src="${crop.icon}" alt=""></span>
@@ -14418,13 +14733,13 @@ function renderInventory() {
       </div>
       <div class="quality-cell"><span class="quality-badge">${batch.quality}</span></div>
       <div class="age-cell"><span class="inventory-label">AGE</span><br><strong>${batchAge} DAY</strong></div>
-      <div class="unit-price-cell"><span class="inventory-label">UNIT</span><br><strong>${accepted ? `₡${formatNumber(unitPrice)}` : "--"}</strong></div>
+      <div class="unit-price-cell"><span class="inventory-label">UNIT</span><br><strong>${accepted ? `₡${formatNumber(saleQuote.firstUnitPrice)}` : "--"}</strong></div>
       <div class="qty-control">
         <button type="button" data-qty-id="${batch.id}" data-delta="-1" ${qty <= 1 ? "disabled" : ""}>-</button>
         <span>${qty}</span>
         <button type="button" data-qty-id="${batch.id}" data-delta="1" ${qty >= batchQty ? "disabled" : ""}>+</button>
       </div>
-      <button type="button" class="sell-button" data-sell-id="${batch.id}" data-guide-target="sell-${batch.crop}" ${accepted ? "" : "disabled"}>${accepted ? `C${formatNumber(unitPrice * qty)} SELL` : "NOT ACCEPTED"}</button>
+      <button type="button" class="sell-button" data-sell-id="${batch.id}" data-guide-target="sell-${batch.crop}" ${accepted ? "" : "disabled"}>${accepted ? `C${formatNumber(saleQuote.revenue)} SELL` : "NOT ACCEPTED"}</button>
     </div>`;
   }).join("");
   applyUiGuide();
@@ -14811,7 +15126,10 @@ function renderRuntime() {
     if (farmRenderIsRequested(currentBase())) renderFarm();
     else updateFarmProgress();
   }
-  if (document.getElementById("market-screen")?.classList.contains("active") && Date.now() >= saleBurstActiveUntil) renderInventory();
+  if (document.getElementById("market-screen")?.classList.contains("active") && Date.now() >= saleBurstActiveUntil) {
+    renderMarketDemandPanel();
+    renderInventory();
+  }
   if (document.getElementById("schedule-screen")?.classList.contains("active")) renderSchedule();
   if (document.getElementById("radio-screen")?.classList.contains("active")) renderRadio();
   if (document.getElementById("labor-screen")?.classList.contains("active")) updateLaborRobotVitals();

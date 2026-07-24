@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260723r6">
+    <link rel="stylesheet" href="styles.css?v=20260724d6">
   <link rel="stylesheet" href="radar.css?v=20260720u2">
 </head>
 <body>
@@ -145,9 +145,9 @@
         <div class="market-shortcuts" id="market-shortcuts" aria-label="Market quick routes"></div>
         <div class="market-trade-layout">
           <div class="price-board">
-            <div class="section-label"><span>市場活況</span><small>TODAY UNIT / B QUALITY</small></div>
-            <div class="market-signal-row" id="market-signal-row"></div>
-            <div class="price-grid" id="price-grid"></div>
+            <div class="section-label"><span>需要シグナル</span><small>1灯 = 買付4件 / 品質B基準</small></div>
+            <div class="market-signal-row demand-supply-row" id="market-signal-row"></div>
+            <div class="price-grid demand-signal-grid" id="price-grid"></div>
           </div>
           <div class="inventory-panel">
             <div class="section-label inventory-section-label">
@@ -606,7 +606,7 @@
 
   <div id="toast-container" aria-live="polite"></div>
   <script src="labor-blueprint.js?v=20260723t10"></script>
-<script src="game.js?v=20260723r6"></script>
+<script src="game.js?v=20260724d6"></script>
   <script src="radar.js?v=20260720u2"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>
