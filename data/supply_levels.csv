@@ -1,0 +1,7 @@
+level,label,minPoints,capacityMultiplier,recoveryMultiplier,priceMultiplier,windowDays
+0,危機,0,0.75,0.75,1.00,5
+1,不安定,8,0.90,0.90,1.00,5
+2,安定,20,1.00,1.00,1.00,5
+3,充足,40,1.15,1.25,1.02,5
+4,豊富,70,1.35,1.55,1.05,5
+5,潤沢,110,1.60,2.00,1.08,5
