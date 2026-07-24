@@ -247,35 +247,216 @@
 .radar-msg[data-kind="warn"] { color: var(--yellow); border-color: rgba(245, 214, 91, .52); }
 .radar-msg[data-kind="danger"] { color: #ff9bab; border-color: rgba(255, 92, 114, .58); }
 
-.radar-actions { padding: 0 12px 10px; }
+.radar-actions {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  padding: 0 12px 11px;
+}
+
+.radar-actions::before {
+  content: "";
+  height: 4px;
+  margin-bottom: 1px;
+  border: 1px solid rgba(245, 214, 91, .26);
+  background: repeating-linear-gradient(135deg, rgba(245, 214, 91, .7) 0 7px, rgba(41, 28, 5, .92) 7px 14px);
+  opacity: .54;
+}
+
+.radar-emergency-status {
+  display: grid;
+  gap: 3px;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 214, 91, .34);
+  border-left: 3px solid var(--yellow);
+  color: #efe8be;
+  background: rgba(35, 28, 6, .55);
+}
+
+.radar-emergency-status small,
+.radar-emergency-status strong {
+  display: block;
+  letter-spacing: 0;
+}
+
+.radar-emergency-status small {
+  color: var(--yellow);
+  font: 800 8.5px/1.2 Consolas, monospace;
+}
+
+.radar-emergency-status strong {
+  color: #f5f0d8;
+  font: 800 11.5px/1.45 "Noto Sans JP", sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.radar-window.shutdown-required .radar-emergency-status {
+  border-color: rgba(255, 92, 114, .84);
+  border-left-color: var(--red);
+  color: #fff;
+  background: rgba(112, 9, 25, .72);
+  box-shadow: inset 0 0 24px rgba(255, 45, 78, .16), 0 0 20px rgba(255, 45, 78, .16);
+}
+
+.radar-window.shutdown-required .radar-emergency-status small {
+  color: #ffabb8;
+}
+
+.radar-window.shutdown-required .radar-emergency-status strong {
+  color: #fff;
+}
+
+.radar-window.power-off .radar-emergency-status {
+  border-color: rgba(114, 255, 184, .48);
+  border-left-color: var(--green);
+  background: rgba(8, 42, 31, .64);
+}
+
+.radar-window.power-off .radar-emergency-status small {
+  color: var(--green);
+}
 
 .radar-estop {
+  position: relative;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
   width: 100%;
-  min-height: 42px;
-  border: 1px solid rgba(255, 92, 114, .62);
-  color: #ff9bab;
-  background: rgba(87, 15, 28, .55);
+  min-height: 70px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 92, 114, .92);
+  border-radius: 4px;
+  color: #fff;
+  background: linear-gradient(180deg, rgba(143, 18, 38, .98), rgba(78, 7, 20, .98));
+  box-shadow: inset 0 0 0 2px rgba(24, 2, 7, .82), inset 0 0 24px rgba(255, 92, 114, .18), 0 5px 0 rgba(32, 3, 9, .95);
   cursor: pointer;
-  font: 800 11px Consolas, "Noto Sans JP", monospace;
-  letter-spacing: .08em;
+  text-align: left;
+}
+
+.radar-estop::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 1px solid rgba(255, 216, 222, .2);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.radar-estop-core {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 3px solid #ffd7de;
+  border-radius: 50%;
+  color: #fff;
+  background: radial-gradient(circle at 38% 30%, #ff7188 0 18%, #e21e40 42%, #790c21 76%);
+  box-shadow: inset 0 -5px 8px rgba(38, 0, 8, .48), 0 0 0 3px rgba(34, 2, 9, .72), 0 0 18px rgba(255, 45, 78, .46);
+  font: 900 23px/1 Consolas, monospace;
+}
+
+.radar-estop-copy {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.radar-estop-copy small,
+.radar-estop-copy strong {
+  display: block;
+  letter-spacing: 0;
+}
+
+.radar-estop-copy small {
+  margin-bottom: 3px;
+  color: #ffb8c3;
+  font: 800 8px/1.2 Consolas, monospace;
+}
+
+.radar-estop-copy strong {
+  color: #fff;
+  font: 900 15px/1.25 "Noto Sans JP", sans-serif;
+  overflow-wrap: anywhere;
+}
+
+.radar-estop kbd {
+  position: relative;
+  z-index: 1;
+  min-width: 34px;
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 226, 231, .54);
+  border-bottom-width: 3px;
+  border-radius: 3px;
+  color: #fff;
+  background: rgba(26, 2, 8, .64);
+  text-align: center;
+  font: 800 9px/1 Consolas, monospace;
+  letter-spacing: 0;
 }
 
 .radar-estop:hover,
 .radar-estop:focus-visible {
-  color: #fff;
-  background: rgba(197, 32, 55, .68);
+  border-color: #fff;
+  background: linear-gradient(180deg, rgba(197, 32, 55, .98), rgba(107, 9, 27, .98));
+  transform: translateY(1px);
+  box-shadow: inset 0 0 0 2px rgba(24, 2, 7, .82), inset 0 0 28px rgba(255, 92, 114, .24), 0 3px 0 rgba(32, 3, 9, .95);
+}
+
+.radar-window.shutdown-required .radar-estop {
+  animation: radar-estop-urgent var(--radar-pulse-ms) steps(2, end) infinite;
+}
+
+@keyframes radar-estop-urgent {
+  50% {
+    border-color: #fff;
+    filter: brightness(1.34);
+    box-shadow: inset 0 0 0 2px rgba(24, 2, 7, .82), inset 0 0 34px rgba(255, 92, 114, .38), 0 5px 0 rgba(32, 3, 9, .95), 0 0 25px rgba(255, 45, 78, .42);
+  }
+}
+
+.radar-estop.physical-input {
+  animation: radar-physical-input .5s ease-out 1;
+}
+
+@keyframes radar-physical-input {
+  0% { filter: brightness(2); transform: scale(.97); }
+  45% { filter: brightness(1.35); transform: scale(1.015); }
+  100% { filter: none; transform: none; }
 }
 
 .radar-estop.restart {
-  border-color: rgba(114, 255, 184, .58);
+  border-color: rgba(114, 255, 184, .72);
   color: var(--green);
-  background: rgba(21, 58, 43, .62);
+  background: linear-gradient(180deg, rgba(20, 86, 60, .98), rgba(7, 42, 29, .98));
+  box-shadow: inset 0 0 0 2px rgba(2, 20, 13, .86), inset 0 0 22px rgba(114, 255, 184, .12), 0 5px 0 rgba(2, 20, 13, .95);
+}
+
+.radar-estop.restart .radar-estop-core {
+  border-color: #caffdf;
+  color: #062116;
+  background: radial-gradient(circle at 38% 30%, #caffdf 0 18%, #72ffb8 42%, #238b61 78%);
+  box-shadow: inset 0 -5px 8px rgba(3, 46, 29, .38), 0 0 0 3px rgba(2, 28, 18, .72), 0 0 17px rgba(114, 255, 184, .35);
+}
+
+.radar-estop.restart .radar-estop-copy small {
+  color: #b9ffda;
+}
+
+.radar-estop.restart kbd {
+  border-color: rgba(185, 255, 218, .52);
+  background: rgba(2, 28, 18, .64);
 }
 
 .radar-estop.restart:hover,
 .radar-estop.restart:focus-visible {
   color: #07100d;
-  background: var(--green);
+  border-color: #e5fff1;
+  background: linear-gradient(180deg, rgba(52, 154, 109, .98), rgba(16, 83, 56, .98));
 }
 
 .radar-foot {
@@ -696,4 +877,16 @@ body.radar-shake {
 .radar-window.radar-dragging .radar-tab {
   cursor: grabbing;
   background: rgba(20, 64, 47, .98);
+}
+
+html.low-spec-mode .radar-window.shutdown-required .radar-estop {
+  animation: none;
+  box-shadow: inset 0 0 0 2px rgba(24, 2, 7, .82), 0 5px 0 rgba(32, 3, 9, .95);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-window.shutdown-required .radar-estop,
+  .radar-estop.physical-input {
+    animation: none !important;
+  }
 }
