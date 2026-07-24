@@ -8675,7 +8675,7 @@ function marketLabel(marketId) {
   return MARKETS[marketId]?.name || marketId || "---";
 }
 
-function mostShippedMarketId(tradeStats = state?.tradeStats) {
+function mostShippedMarketId(tradeStats = titleStatsSinceAllMarketsUnlocked()) {
   const quantities = tradeStats?.byMarketQty || {};
   const revenue = tradeStats?.byMarket || {};
   return [...MARKET_ENDING_ORDER].sort((left, right) => {
