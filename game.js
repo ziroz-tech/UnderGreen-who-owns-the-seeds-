@@ -36,6 +36,7 @@ let INFO_ENTRIES = [];
 let CREDITS = [];
 let ENDING_ROLL_ITEMS = [];
 let ENDING_ROLL_TEXT = {};
+let MARKET_ENDINGS = {};
 
 const QUALITY = {
   C: { multiplier: 0.7, color: "#ff765e" },
@@ -65,16 +66,33 @@ const LABOR_TUTORIAL_QA_PARAM = (() => {
 const LABOR_TUTORIAL_QA_MODE = ["1", "true", "on", "qa"].includes(
   String(LABOR_TUTORIAL_QA_PARAM || "").trim().toLowerCase()
 );
+const MARKET_ENDING_QA_PARAM = (() => {
+  try {
+    return new URLSearchParams(window.location.search).get("marketendingqa");
+  } catch (error) {
+    return null;
+  }
+})();
+const MARKET_ENDING_QA_ID = ["lower", "medical", "upper", "rebel"].includes(
+  String(MARKET_ENDING_QA_PARAM || "").trim().toLowerCase()
+)
+  ? String(MARKET_ENDING_QA_PARAM).trim().toLowerCase()
+  : null;
+const ISOLATED_QA_MODE = LABOR_TUTORIAL_QA_MODE || Boolean(MARKET_ENDING_QA_ID);
 const PRIMARY_SAVE_KEY = "undergreen-save-v17";
-// Repeated tutorial checks must never overwrite the player's regular save.
-const SAVE_KEY = LABOR_TUTORIAL_QA_MODE
-  ? `${PRIMARY_SAVE_KEY}-labor-tutorial-qa`
-  : PRIMARY_SAVE_KEY;
+// Repeated QA checks must never overwrite the player's regular save or records.
+const QA_SAVE_SUFFIX = LABOR_TUTORIAL_QA_MODE
+  ? "labor-tutorial-qa"
+  : MARKET_ENDING_QA_ID
+    ? "market-ending-qa"
+    : "";
+const SAVE_KEY = QA_SAVE_SUFFIX ? `${PRIMARY_SAVE_KEY}-${QA_SAVE_SUFFIX}` : PRIMARY_SAVE_KEY;
 const SAVE_BACKUP_KEY = `${SAVE_KEY}-backup`;
 const LEGACY_SAVE_KEYS = [];
-const DAY45_RECORDS_KEY = "undergreen-day45-records-v1";
-const DAY60_RECORDS_KEY = "undergreen-day60-records-v1";
-const FREE_RECORDS_KEY = "undergreen-free-records-v1";
+const QA_RECORD_SUFFIX = ISOLATED_QA_MODE ? "-qa" : "";
+const DAY45_RECORDS_KEY = `undergreen-day45-records-v1${QA_RECORD_SUFFIX}`;
+const DAY60_RECORDS_KEY = `undergreen-day60-records-v1${QA_RECORD_SUFFIX}`;
+const FREE_RECORDS_KEY = `undergreen-free-records-v1${QA_RECORD_SUFFIX}`;
 const START_MODE_PREF_KEY = "undergreen-start-mode-view-v1";
 const SETTINGS_PREF_KEY = "undergreen-settings-v1";
 const PUBLIC_GAME_URL = "https://ziroz-tech.github.io/UnderGreen/";
@@ -134,6 +152,7 @@ const PROPERTY_REROLL_FEE = 100;
 const PROCUREMENT_REROLL_FEE = 80;
 const AUTOMATION_CATEGORY_UNLOCK_REVENUE = 2000;
 const PRE_RESULT_STORY_ID = "story_pre_result_robot_interview";
+const MARKET_ENDING_ORDER = Object.freeze(["lower", "medical", "upper", "rebel"]);
 const SHOP_CATEGORIES = {
   seeds: {
     label: "種子",
@@ -809,6 +828,7 @@ const REQUIRED_GAME_DATA_PATHS = [
   "data/info_entries.csv",
   "data/credits.csv",
   "data/ending_roll.csv",
+  "data/market_endings.csv",
   "data/comm_events.csv",
   "data/story_events.csv",
   "data/story_event_speakers.csv",
@@ -1035,6 +1055,27 @@ async function loadExternalData() {
         anchor: toBool(row.anchor)
       }))
       .sort((a, b) => a.order - b.order);
+  });
+  await loadRequiredCsv("data/market_endings.csv", (rows) => {
+    MARKET_ENDINGS = rows.reduce((endings, row) => {
+      const marketId = String(row.marketId || "").trim();
+      const text = String(row.text || "").trim();
+      if (!marketId || !text) return endings;
+      endings[marketId] ||= {
+        marketId,
+        title: row.title || marketId,
+        kicker: row.kicker || "AFTER THE OPERATION",
+        pages: []
+      };
+      endings[marketId].pages.push({
+        order: toNumber(row.order, endings[marketId].pages.length + 1),
+        text
+      });
+      return endings;
+    }, {});
+    Object.values(MARKET_ENDINGS).forEach((ending) => {
+      ending.pages.sort((a, b) => a.order - b.order);
+    });
   });
   await loadRequiredCsv("data/crops.csv", (rows) => {
     CROPS = rowsToObject(rows, (row) => ({
@@ -3608,12 +3649,42 @@ function prepareLaborTutorialQaState() {
   state.log = "LABOR TUTORIAL QA // 通常セーブから分離された接続訓練です。";
 }
 
+function prepareMarketEndingQaState() {
+  const marketId = MARKET_ENDING_QA_ID || "lower";
+  const previewQuantity = 12;
+  const previewRevenue = 1200;
+  state.mode = "day45";
+  state.day = playModeLimit("day45");
+  state.dayProgress = 1;
+  state.debugMode = false;
+  state.ended = false;
+  state.resultShown = false;
+  state.paused = true;
+  state.timeUnlocked = true;
+  state.tradeStats.byMarketQty[marketId] = previewQuantity;
+  state.tradeStats.byMarket[marketId] = previewRevenue;
+  state.tradeStats.unitsSold = previewQuantity;
+  state.tradeStats.revenue = previewRevenue;
+  state.pendingDay30Result = {
+    completed: true,
+    playedDays: playModeLimit("day45"),
+    mode: "day45",
+    marketEndingId: marketId,
+    marketEndingPage: 0,
+    marketEndingComplete: false,
+    interviewStarted: false,
+    interviewComplete: false
+  };
+  state.log = `MARKET ENDING QA // ${marketId}`;
+}
+
 function loadGame() {
-  const loaded = LABOR_TUTORIAL_QA_MODE
+  const loaded = ISOLATED_QA_MODE
     ? { state: createInitialState("day45"), sourceKey: null }
     : readSavedGame();
   state = loaded.state || createInitialState();
   if (LABOR_TUTORIAL_QA_MODE) prepareLaborTutorialQaState();
+  else if (MARKET_ENDING_QA_ID) prepareMarketEndingQaState();
   state.commsSeen ||= {};
   state.commsChoices ||= {};
   state.commsOpen ||= [];
@@ -3647,10 +3718,17 @@ function loadGame() {
   state.automationTabUnlocked = Boolean(state.automationTabUnlocked);
   ensureTitleTrackingState();
   const pendingResult = state.pendingDay30Result;
+  const pendingCompleted = Boolean(pendingResult?.completed);
   state.pendingDay30Result = pendingResult && typeof pendingResult === "object" ? {
-    completed: Boolean(pendingResult.completed),
+    completed: pendingCompleted,
     playedDays: Math.max(1, Number(pendingResult.playedDays) || Number(state.day) || 1),
     mode: validPlayMode(pendingResult.mode || state.mode || "day45"),
+    marketEndingId: MARKET_ENDING_ORDER.includes(pendingResult.marketEndingId)
+      ? pendingResult.marketEndingId
+      : mostShippedMarketId(),
+    marketEndingPage: Math.max(0, Math.floor(Number(pendingResult.marketEndingPage) || 0)),
+    marketEndingComplete: !pendingCompleted || Boolean(pendingResult.marketEndingComplete),
+    interviewStarted: Boolean(pendingResult.interviewStarted || pendingResult.interviewComplete),
     interviewComplete: Boolean(pendingResult.interviewComplete)
   } : null;
   if (state.pendingDay30Result) state.paused = true;
@@ -8448,7 +8526,7 @@ function isGameTimeRunning() {
 }
 
 function isCommsInteractionTarget(target) {
-  return Boolean(target?.closest?.("#story-comms-overlay, #comms-banner, #modal-backdrop, #toast-container, #confirm-widget, #start-screen, #settings-overlay, #robot-gacha-overlay, #timed-mode-countdown"));
+  return Boolean(target?.closest?.("#story-comms-overlay, #comms-banner, #modal-backdrop, #toast-container, #confirm-widget, #start-screen, #settings-overlay, #robot-gacha-overlay, #timed-mode-countdown, #market-ending-overlay"));
 }
 
 function renderComms() {
@@ -8554,6 +8632,7 @@ function closeComms(choiceId = "close") {
   renderComms();
   if (activeComms) playCommsSound(activeComms, "comms_next");
   saveGame();
+  if (!activeComms) completePendingDay30ResultIfReady();
 }
 
 function isFreshOperationState() {
@@ -8594,6 +8673,18 @@ function maintainedEquipmentCount() {
 
 function marketLabel(marketId) {
   return MARKETS[marketId]?.name || marketId || "---";
+}
+
+function mostShippedMarketId(tradeStats = state?.tradeStats) {
+  const quantities = tradeStats?.byMarketQty || {};
+  const revenue = tradeStats?.byMarket || {};
+  return [...MARKET_ENDING_ORDER].sort((left, right) => {
+    const quantityDifference = (Number(quantities[right]) || 0) - (Number(quantities[left]) || 0);
+    if (quantityDifference !== 0) return quantityDifference;
+    const revenueDifference = (Number(revenue[right]) || 0) - (Number(revenue[left]) || 0);
+    if (revenueDifference !== 0) return revenueDifference;
+    return MARKET_ENDING_ORDER.indexOf(left) - MARKET_ENDING_ORDER.indexOf(right);
+  })[0] || "lower";
 }
 
 function cropLabel(cropId) {
@@ -12149,7 +12240,106 @@ function showEndReport() {
   showModal(kicker, title, `<p class="modal-copy">${copy}</p>${reportMarkup()}`, false);
 }
 
+const marketEndingPresentation = (() => {
+  let active = false;
+
+  function elements() {
+    return {
+      overlay: document.getElementById("market-ending-overlay"),
+      frame: document.getElementById("market-ending-frame"),
+      kicker: document.getElementById("market-ending-kicker"),
+      title: document.getElementById("market-ending-title"),
+      text: document.getElementById("market-ending-text"),
+      progress: document.getElementById("market-ending-progress"),
+      nextButton: document.getElementById("market-ending-next")
+    };
+  }
+
+  function stop() {
+    const { overlay } = elements();
+    active = false;
+    document.body.classList.remove("market-ending-active");
+    if (!overlay) return;
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+  }
+
+  function renderPage() {
+    const pending = state?.pendingDay30Result;
+    const ending = MARKET_ENDINGS[pending?.marketEndingId];
+    if (!pending || !ending?.pages?.length) {
+      stop();
+      return false;
+    }
+
+    const index = Math.min(ending.pages.length - 1, Math.max(0, Number(pending.marketEndingPage) || 0));
+    const page = ending.pages[index];
+    const { overlay, frame, kicker, title, text, progress, nextButton } = elements();
+    if (!overlay || !frame || !kicker || !title || !text || !progress || !nextButton) return false;
+
+    pending.marketEndingPage = index;
+    kicker.textContent = ending.kicker;
+    title.textContent = ending.title;
+    text.textContent = page.text;
+    progress.textContent = `${index + 1} / ${ending.pages.length}`;
+    nextButton.textContent = index >= ending.pages.length - 1 ? "総評へ" : "次へ";
+
+    active = true;
+    document.body.classList.add("market-ending-active");
+    overlay.classList.remove("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    frame.classList.remove("is-entering");
+    void frame.offsetWidth;
+    frame.classList.add("is-entering");
+    nextButton.focus({ preventScroll: true });
+    return true;
+  }
+
+  function play(marketId, page = 0) {
+    const ending = MARKET_ENDINGS[marketId];
+    const pending = state?.pendingDay30Result;
+    if (!pending || !ending?.pages?.length) return false;
+    pending.marketEndingId = marketId;
+    pending.marketEndingPage = Math.max(0, Math.floor(Number(page) || 0));
+    if (!renderPage()) return false;
+    saveGame();
+    return true;
+  }
+
+  function finish() {
+    const pending = state?.pendingDay30Result;
+    if (pending) {
+      pending.marketEndingComplete = true;
+      pending.marketEndingPage = 0;
+    }
+    stop();
+    lastTickAt = Date.now();
+    saveGame();
+    completePendingDay30ResultIfReady();
+  }
+
+  function next() {
+    if (!active) return false;
+    const pending = state?.pendingDay30Result;
+    const ending = MARKET_ENDINGS[pending?.marketEndingId];
+    if (!pending || !ending?.pages?.length) {
+      finish();
+      return false;
+    }
+    if (pending.marketEndingPage >= ending.pages.length - 1) {
+      finish();
+      return true;
+    }
+    pending.marketEndingPage += 1;
+    saveGame();
+    return renderPage();
+  }
+
+  return { play, next, stop, isActive: () => active };
+})();
+
 function commitDay30Run({ completed = false, playedDays = state.day, mode = state.mode } = {}) {
+  marketEndingPresentation.stop();
   state.pendingDay30Result = null;
   state.ended = true;
   state.paused = true;
@@ -12168,32 +12358,62 @@ function commitDay30Run({ completed = false, playedDays = state.day, mode = stat
 
 function completePendingDay30ResultIfReady() {
   const pending = state.pendingDay30Result;
-  if (!pending?.interviewComplete || activeStory) return false;
+  if (!pending || activeStory || activeComms) return false;
+
+  if (pending.completed && !pending.marketEndingComplete) {
+    pending.marketEndingId = MARKET_ENDING_ORDER.includes(pending.marketEndingId)
+      ? pending.marketEndingId
+      : mostShippedMarketId();
+    if (!MARKET_ENDINGS[pending.marketEndingId]?.pages?.length) {
+      pending.marketEndingComplete = true;
+    } else {
+      if (!marketEndingPresentation.isActive()) {
+        marketEndingPresentation.play(pending.marketEndingId, pending.marketEndingPage);
+      }
+      return false;
+    }
+  }
+
+  if (!pending.interviewComplete) {
+    if (!pending.interviewStarted) {
+      pending.interviewStarted = true;
+      const interviewStarted = triggerStoryEvent("pre_result_robot_interview", {
+        completed: pending.completed,
+        playedDays: pending.playedDays,
+        mode: pending.mode
+      });
+      if (!interviewStarted) pending.interviewComplete = true;
+      saveGame();
+      render();
+      if (interviewStarted) return false;
+    } else {
+      return false;
+    }
+  }
+
   commitDay30Run(pending);
   return true;
 }
 
 function finalizeDay30Run({ completed = false, playedDays = state.day, mode = state.mode } = {}) {
   if (state.ended || state.pendingDay30Result) return;
+  const didComplete = Boolean(completed);
   state.paused = true;
   state.pendingDay30Result = {
-    completed: Boolean(completed),
+    completed: didComplete,
     playedDays: Math.max(1, Number(playedDays) || Number(state.day) || 1),
     mode: validPlayMode(mode || state.mode || "day45"),
+    marketEndingId: didComplete ? mostShippedMarketId() : null,
+    marketEndingPage: 0,
+    marketEndingComplete: !didComplete,
+    interviewStarted: false,
     interviewComplete: false
   };
-  const interviewStarted = triggerStoryEvent("pre_result_robot_interview", {
-    completed: Boolean(completed),
-    playedDays: state.pendingDay30Result.playedDays,
-    mode: state.pendingDay30Result.mode
-  });
-  if (!interviewStarted) {
-    state.pendingDay30Result.interviewComplete = true;
-    completePendingDay30ResultIfReady();
-    return;
+  completePendingDay30ResultIfReady();
+  if (state.pendingDay30Result) {
+    saveGame();
+    render();
   }
-  saveGame();
-  render();
 }
 
 function randomResultTitle(summary) {
@@ -13318,6 +13538,7 @@ function showModal(kicker, title, content, canContinue, showReset = true, closeL
 }
 
 function clearSessionInteractionState() {
+  marketEndingPresentation.stop();
   clearDragState();
   clearEquipmentMenu();
   clearCleanToolDrag();
@@ -15989,6 +16210,11 @@ function bindEvents() {
     resultPresentation.stop();
     document.getElementById("modal-backdrop").classList.add("hidden");
   });
+  document.getElementById("market-ending-next")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    marketEndingPresentation.next();
+  });
   window.addEventListener("resize", applyUiScale);
   window.visualViewport?.addEventListener("resize", applyUiScale);
   document.addEventListener("fullscreenchange", () => { updateFullscreenButton(); applyUiScale(); });
@@ -15996,6 +16222,15 @@ function bindEvents() {
   document.addEventListener("msfullscreenchange", () => { updateFullscreenButton(); applyUiScale(); });
 
   document.addEventListener("keydown", (event) => {
+    if (marketEndingPresentation.isActive()) {
+      if (["Enter", " ", "ArrowRight"].includes(event.key)) {
+        event.preventDefault();
+        marketEndingPresentation.next();
+      } else if (event.key !== "Tab") {
+        event.preventDefault();
+      }
+      return;
+    }
     if (settingsPanelOpen) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -16091,6 +16326,15 @@ async function bootstrap() {
   if (LABOR_TUTORIAL_QA_MODE) {
     setInputDiagnosticStage("labor-tutorial-qa");
     launchLaborTutorialQaMode();
+  } else if (state.pendingDay30Result) {
+    setInputDiagnosticStage("pending-result");
+    startScreenOpen = false;
+    pausedBeforeStartScreen = false;
+    document.body.classList.remove("start-screen-open");
+    const startScreen = document.getElementById("start-screen");
+    startScreen?.classList.add("hidden");
+    startScreen?.setAttribute("aria-hidden", "true");
+    completePendingDay30ResultIfReady();
   } else {
     setInputDiagnosticStage("start-screen");
     openStartScreen({ persist: false });

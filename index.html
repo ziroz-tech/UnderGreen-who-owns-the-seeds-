@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260724d6">
+    <link rel="stylesheet" href="styles.css?v=20260725e1">
   <link rel="stylesheet" href="radar.css?v=20260724r2">
 </head>
 <body>
@@ -463,6 +463,20 @@
     </div>
   </section>
 
+  <section class="market-ending-overlay hidden" id="market-ending-overlay" aria-hidden="true" aria-labelledby="market-ending-title">
+    <div class="market-ending-frame" id="market-ending-frame" role="dialog" aria-modal="true">
+      <header class="market-ending-header">
+        <p id="market-ending-kicker">AFTER THE OPERATION</p>
+        <h2 id="market-ending-title">---</h2>
+      </header>
+      <p class="market-ending-text" id="market-ending-text"></p>
+      <footer class="market-ending-footer">
+        <span id="market-ending-progress">1 / 1</span>
+        <button id="market-ending-next" type="button">次へ</button>
+      </footer>
+    </div>
+  </section>
+
   <section class="timed-mode-countdown hidden" id="timed-mode-countdown" aria-hidden="true" aria-live="assertive">
     <div class="timed-mode-countdown-lines" aria-hidden="true"></div>
     <div class="timed-mode-countdown-band">
@@ -606,7 +620,7 @@
 
   <div id="toast-container" aria-live="polite"></div>
   <script src="labor-blueprint.js?v=20260723t10"></script>
-<script src="game.js?v=20260724d6"></script>
+<script src="game.js?v=20260725e2"></script>
   <script src="radar.js?v=20260725r3"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>
