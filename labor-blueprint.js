@@ -95,6 +95,7 @@
     care: { label: "育成管理", kicker: "TASK", icon: "✦", description: "指定作物のうち、手入れ時期を迎えた植物を1株管理します。", category: "task", task: "care" },
     procure: { label: "調達", kicker: "TASK", icon: "🛒", description: "指定した種を時価で1〜12パックまとめて購入します。調達端末が必要です。", category: "task", task: "procure" },
     cleaning: { label: "清掃", kicker: "TASK", icon: "🧹", description: "範囲内で汚れている設備を1つ清掃します。", category: "task", task: "cleaning" },
+    resource_collect: { label: "資源回収", kicker: "TASK", icon: "💧", description: "範囲内の製水器・養液培養槽から貯まった資源を1設備分回収します。", category: "task", task: "resource_collect" },
     rest: { label: "充電休憩", kicker: "TASK", icon: "🔋", description: "一定時間作業を止め、完了時に電力を満充電し、気力を少量回復します。", category: "task", task: "" }
   });
 
@@ -151,7 +152,7 @@
   });
 
   const LABOR_PALETTE_GROUPS = Object.freeze([
-    { label: "TASK", types: ["cleaning", "harvest", "care", "ship", "plant", "procure", "rest"] },
+    { label: "TASK", types: ["cleaning", "resource_collect", "harvest", "care", "ship", "plant", "procure", "rest"] },
     { label: "FLOW CONTROL", types: ["branch", "sequence", "flipflop", "daily", "every", "random"] },
     { label: "CONDITION", types: ["condition"] }
   ]);
@@ -662,6 +663,11 @@
         ? { unlocked: true, reason: "お掃除OS ONLINE" }
         : { unlocked: false, reason: "お掃除OSが必要" };
     }
+    if (type === "resource_collect") {
+      return state.supportOS?.storage
+        ? { unlocked: true, reason: "資源保管OS ONLINE" }
+        : { unlocked: false, reason: "資源保管OSが必要" };
+    }
     if (type === "ship") {
       const hasHatch = ownedBases().some((base) => (
         base.floorDevices?.some((device) => device.type === "shipping_hatch")
@@ -1122,7 +1128,7 @@
   }
 
   function laborAssistRecommendedTaskType() {
-    return ["harvest", "plant", "cleaning", "care", "ship", "procure", "rest"]
+    return ["harvest", "plant", "cleaning", "resource_collect", "care", "ship", "procure", "rest"]
       .find((type) => supportBlueprintNodeUnlockState(type).unlocked) || "rest";
   }
 
@@ -1201,7 +1207,7 @@
     const condition = laborTutorialNode(blueprint, tutorial, "condition");
     return Boolean(condition
       && condition.conditionSource === "energy"
-      && condition.operator === "gte"
+      && condition.operator === "lte"
       && Number(condition.value) === 50);
   }
 
@@ -1304,6 +1310,7 @@
       return laborAssistCropName(node.cropId) + "の種を" + Math.max(1, Number(node.packs) || 1) + "パック調達";
     }
     if (node.type === "cleaning") return "清掃";
+    if (node.type === "resource_collect") return "設備から資源を回収";
     if (node.type === "rest") return "充電休憩";
     return supportBlueprintNodeDefinition(node.type).label || "次の作業";
   }
@@ -1362,7 +1369,7 @@
       const child = laborAssistFirstOutgoingNode(blueprint, node.id, "out");
       return child ? laborAssistFlowSummary(blueprint, child.id, depth + 1, nextVisited) : "";
     }
-    if (["harvest", "ship", "plant", "care", "procure", "cleaning"].includes(node.type)) {
+    if (["harvest", "ship", "plant", "care", "procure", "cleaning", "resource_collect"].includes(node.type)) {
       const child = laborAssistFirstOutgoingNode(blueprint, node.id, "failure");
       const action = "「" + laborAssistTaskLabel(node) + "」";
       return child
@@ -1590,8 +1597,8 @@
           copy: "NODE LIBRARYの「条件」から「条件」を編集領域へ置いてください。このノードが判定結果のBOOL信号を作ります。"
         },
         [LABOR_TUTORIAL_PHASES.CONFIGURE_CONDITION]: {
-          title: "電力50以上を判定する",
-          copy: "条件ノードを CHECK「電力」・TEST「以上」・VALUE「50」に設定してください。"
+          title: "電力50以下を判定する",
+          copy: "条件ノードを CHECK「電力」・TEST「以下」・VALUE「50」に設定してください。"
         },
         [LABOR_TUTORIAL_PHASES.PLACE_REST]: {
           title: "充電休憩ノードを置く",
@@ -1606,7 +1613,7 @@
           copy: "「条件」のBOOL出力端子から「分岐」のBOOL入力端子へつないでください。"
         },
         [LABOR_TUTORIAL_PHASES.CONNECT_TRUE_REST]: {
-          title: "電力50以上なら休憩",
+          title: "電力50以下なら休憩",
           copy: "「分岐」の「はい」端子から「充電休憩」の実行端子へつないでください。"
         },
         [LABOR_TUTORIAL_PHASES.CONNECT_FALSE_CLEANING]: {
@@ -1618,7 +1625,7 @@
         title: phase === LABOR_TUTORIAL_PHASES.CLEANING_REVIEW ? "清掃ルート完成" : "構成を確認",
         copy: phase === LABOR_TUTORIAL_PHASES.CLEANING_REVIEW
           ? "作業開始から清掃へつながりました。まずは基本接続の完了を確認します。"
-          : "電力50以上なら充電休憩、それ以外なら清掃する構成が完成しました。"
+          : "電力50以下なら充電休憩、それ以外なら清掃する構成が完成しました。"
       };
     }
     const target = laborAssistTargetNode(record?.robot?.supportBlueprint);
@@ -1940,7 +1947,7 @@
         && condition?.id === nodeId
         && ["conditionSource", "operator", "value"].includes(field);
       if (!allowed) {
-        toast("いまは条件ノードを「電力・以上・50」に設定してください。", "warning");
+        toast("いまは条件ノードを「電力・以下・50」に設定してください。", "warning");
         rejectFeedback();
         return;
       }
@@ -1951,7 +1958,7 @@
       node.conditionSource = value;
     }
     if (field === "operator" && ["gte", "gt", "lte", "lt", "eq"].includes(value)) node.operator = value;
-    if (field === "actionType" && ["harvest", "care", "ship", "plant", "procure", "cleaning"].includes(value)) node.actionType = value;
+    if (field === "actionType" && ["harvest", "care", "ship", "plant", "procure", "cleaning", "resource_collect"].includes(value)) node.actionType = value;
     if (field === "everyN" && [2, 3, 5].includes(Number(value))) node.everyN = Number(value);
     if (field === "probability" && [25, 50, 75].includes(Number(value))) node.probability = Number(value);
     if (field === "value") node.value = Math.max(0, Math.min(999999, Number(value) || 0));
@@ -1984,7 +1991,7 @@
   }
 
   function blueprintActionOptions(selectedType) {
-    return ["harvest", "care", "ship", "plant", "procure", "cleaning"].map((type) => {
+    return ["harvest", "care", "ship", "plant", "procure", "cleaning", "resource_collect"].map((type) => {
       const definition = supportBlueprintNodeDefinition(type);
       const unlock = supportBlueprintNodeUnlockState(type);
       return `<option value="${type}" ${type === selectedType ? "selected" : ""} ${unlock.unlocked ? "" : "disabled"}>${escapeHtml(definition.label)}${unlock.unlocked ? "" : " [LOCKED]"}</option>`;
