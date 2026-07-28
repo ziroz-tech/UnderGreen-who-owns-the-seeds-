@@ -30,7 +30,7 @@
   const RADAR_POSITION_STORAGE_KEY = "undergreen.radar.position";
   const RADAR_VERTICAL_MARGIN = 14;
   const RADAR_DRAG_THRESHOLD = 5;
-  const POWER_TOGGLE_KEY = "F1";
+  const POWER_TOGGLE_KEYS = new Set(["F1", "PageDown"]);
   const POWER_TOGGLE_DEBOUNCE_MS = 320;
   const BLACKOUT_CHATTER_SLOTS = [
     { x: 41, y: 20, tail: "left" },
@@ -73,13 +73,13 @@
           '<small id="radar-emergency-kicker">EMERGENCY PROTOCOL</small>',
           '<strong id="radar-emergency-message">平常監視中。接近警報時は農場電源を遮断。</strong>',
         '</div>',
-        '<button class="radar-estop" id="radar-estop" type="button" aria-keyshortcuts="F1">',
+        '<button class="radar-estop" id="radar-estop" type="button" aria-keyshortcuts="F1 PageDown">',
           '<span class="radar-estop-core" aria-hidden="true">!</span>',
           '<span class="radar-estop-copy">',
             '<small>EMERGENCY POWER</small>',
             '<strong id="radar-estop-label">電源を落とす</strong>',
           '</span>',
-          '<kbd>F1</kbd>',
+          '<kbd>F1 / PGDN</kbd>',
         '</button>',
       '</div>',
       '<div class="radar-foot">',
@@ -94,7 +94,10 @@
       '<i class="radar-tab-pulse-ring" data-ring="2"></i>',
       '<i class="radar-tab-pulse-ring" data-ring="3"></i>',
     '</span>',
-    '<button class="radar-tab" id="radar-tab" type="button" aria-expanded="false">RADAR</button>'
+    '<button class="radar-tab" id="radar-tab" type="button" aria-expanded="false" aria-label="監視レーダーを開く" title="監視レーダーを開く">',
+      '<span class="radar-tab-chevron" aria-hidden="true"></span>',
+      '<span class="radar-tab-label">RADAR</span>',
+    '</button>'
   ].join("");
   document.body.appendChild(win);
 
@@ -248,6 +251,8 @@
   function setPanelOpen(open) {
     win.classList.toggle("open", open);
     tab.setAttribute("aria-expanded", String(open));
+    tab.setAttribute("aria-label", open ? "監視レーダーをしまう" : "監視レーダーを開く");
+    tab.title = open ? "監視レーダーをしまう" : "監視レーダーを開く";
     syncRadarPosition();
     restartFrameLoop();
   }
@@ -431,9 +436,11 @@
     powerButtonLabel.textContent = powerOn ? "電源を落とす" : "系統を再起動";
     powerButton.setAttribute(
       "aria-label",
-      powerOn ? "緊急停止：農場電源を落とす。F1" : "農場系統を再起動する。F1"
+      powerOn
+        ? "緊急停止：農場電源を落とす。F1またはPageDown"
+        : "農場系統を再起動する。F1またはPageDown"
     );
-    powerButton.title = powerOn ? "緊急停止（F1）" : "系統再起動（F1）";
+    powerButton.title = powerOn ? "緊急停止（F1 / PGDN）" : "系統再起動（F1 / PGDN）";
     powerChip.textContent = powerOn ? "MAIN PWR" : "INT PWR";
     powerChip.classList.toggle("off", !powerOn);
     syncEmergencyUi();
@@ -450,7 +457,7 @@
       emergencyKicker.textContent = approaching ? "SIGNATURE SUPPRESSED" : "MAIN POWER OFFLINE";
       emergencyMessage.textContent = approaching
         ? "電源遮断済み。管理局が通過するまで待機。"
-        : "農場系統停止中。F1または下のボタンで再起動。";
+        : "農場系統停止中。F1・ページ送り・下のボタンで再起動。";
       return;
     }
     if (approaching) {
@@ -462,13 +469,13 @@
     emergencyMessage.textContent = "平常監視中。接近警報時は農場電源を遮断。";
   }
 
-  function toggleRadarPower(source = "screen") {
+  function toggleRadarPower(source = "screen", inputLabel = "") {
     if (!snapshot.unlocked) return false;
     const nextPower = bridge.setPower(snapshot.powerOn === false);
     snapshot = bridge.getSnapshot();
     snapshot.powerOn = nextPower;
     syncPowerUi();
-    const inputPrefix = source === "keyboard" ? "F1 INPUT / " : "";
+    const inputPrefix = source === "keyboard" ? `${inputLabel || "KEY"} INPUT / ` : "";
     if (nextPower) {
       showMessage(inputPrefix + "系統再起動 / 農場シグネチャ復帰", "warn");
       tone(120, 0.5, { type: "sawtooth", gain: 0.08, slide: 320 });
@@ -491,14 +498,19 @@
   powerButton.addEventListener("click", () => toggleRadarPower("screen"));
 
   window.addEventListener("keydown", (event) => {
-    if (event.key !== POWER_TOGGLE_KEY && event.code !== POWER_TOGGLE_KEY) return;
+    const powerToggleKey = [event.key, event.code].find((key) => POWER_TOGGLE_KEYS.has(key));
+    if (!powerToggleKey) return;
     if (!snapshot.unlocked) return;
+    const scrollPosition = { x: window.scrollX, y: window.scrollY };
     event.preventDefault();
     if (event.repeat) return;
     const now = performance.now();
     if (now - lastPowerToggleAt < POWER_TOGGLE_DEBOUNCE_MS) return;
     lastPowerToggleAt = now;
-    toggleRadarPower("keyboard");
+    toggleRadarPower("keyboard", powerToggleKey === "PageDown" ? "PGDN" : powerToggleKey);
+    if (powerToggleKey === "PageDown") {
+      window.requestAnimationFrame(() => window.scrollTo(scrollPosition.x, scrollPosition.y));
+    }
   }, true);
 
   function updateSnapshot(nextSnapshot) {
@@ -788,8 +800,17 @@
     win.classList.toggle("danger", inPulse);
     win.classList.toggle("imminent", imminent);
     syncEmergencyUi();
-    tab.setAttribute("aria-label", approaching ? "RADAR 管理局接近中" : "RADAR");
-    tab.title = approaching ? "管理局接近中 / 開いて確認" : "監視レーダー";
+    const panelOpen = win.classList.contains("open");
+    tab.setAttribute("aria-label", panelOpen
+      ? "監視レーダーをしまう"
+      : approaching
+        ? "監視レーダーを開く、管理局接近中"
+        : "監視レーダーを開く");
+    tab.title = panelOpen
+      ? "監視レーダーをしまう"
+      : approaching
+        ? "管理局接近中 / 開いて確認"
+        : "監視レーダーを開く";
     threatOverlay.style.opacity = String(intensity * 0.72);
 
     if (!snapshot.running) {

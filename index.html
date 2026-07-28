@@ -6,12 +6,13 @@
   <meta name="theme-color" content="#07110f">
   <title>UNDERGREEN | 違法水耕栽培シミュレーション</title>
   <link rel="icon" href="assets/icons/seed.webp" type="image/webp">
-    <link rel="stylesheet" href="styles.css?v=20260725e1">
-  <link rel="stylesheet" href="radar.css?v=20260724r2">
+    <link rel="stylesheet" href="styles.css?v=20260728n2">
+  <link rel="stylesheet" href="radar.css?v=20260728r4">
 </head>
 <body>
   <div class="scanlines" aria-hidden="true"></div>
   <div id="app">
+    <div class="app-command-deck">
     <header class="topbar">
       <div class="brand">
         <div class="brand-mark">UG</div>
@@ -86,6 +87,7 @@
       <button class="tab" data-tab="radio"><span>07</span>ラジオ</button>
       <button class="tab" data-tab="info"><span>08</span>情報</button>
     </nav>
+    </div>
 
     <main>
       <section class="screen active" id="farm-screen">
@@ -261,7 +263,6 @@
           <aside class="labor-roster-panel">
             <div class="section-label"><span>SUPPORT UNITS</span><small>個体を選択</small></div>
             <div class="labor-robot-list" id="labor-robot-list"></div>
-            <div class="labor-robot-detail" id="labor-robot-detail"></div>
           </aside>
           <section class="blueprint-console">
             <div class="blueprint-toolbar">
@@ -271,6 +272,7 @@
               </div>
               <div class="blueprint-toolbar-actions">
                 <button class="secondary-button" data-blueprint-center type="button" title="表示を中央に戻す">CENTER</button>
+                <button class="secondary-button blueprint-library-toggle" data-blueprint-library-toggle type="button" aria-expanded="false" aria-controls="blueprint-palette-panel"><span aria-hidden="true">▤</span> LIBRARY</button>
                 <label class="labor-tooltip-toggle" title="労務管理の説明表示を切り替え">
                   <span>TOOLTIPS</span>
                   <input data-labor-tooltip-toggle type="checkbox" checked aria-label="ツールチップ表示">
@@ -288,8 +290,8 @@
                 </div>
                 <div class="blueprint-empty-hint" id="blueprint-empty-hint">START SIGNAL UNROUTED</div>
               </div>
-              <aside class="blueprint-palette-panel">
-                <div class="section-label"><span>NODE LIBRARY</span><small>複数配置可</small></div>
+              <aside class="blueprint-palette-panel" id="blueprint-palette-panel" aria-hidden="true">
+                <div class="section-label blueprint-library-heading"><span>NODE LIBRARY</span><small>複数配置可</small><button data-blueprint-library-close type="button" aria-label="ノードライブラリを閉じる">×</button></div>
                 <details class="blueprint-package-panel" open>
                   <summary data-blueprint-package-toggle>
                     <span>NODE PACKAGE</span>
@@ -326,6 +328,15 @@
       </section>
     </main>
   </div>
+
+  <div class="labor-detail-backdrop" data-labor-detail-close hidden></div>
+  <aside class="labor-robot-detail-drawer" id="labor-robot-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="labor-detail-title" hidden>
+    <header>
+      <div><p class="eyebrow">SUPPORT UNIT PROFILE</p><h3 id="labor-detail-title">詳細ステータス</h3></div>
+      <button data-labor-detail-close type="button" aria-label="詳細ステータスを閉じる">×</button>
+    </header>
+    <div class="labor-robot-detail" id="labor-robot-detail"></div>
+  </aside>
 
   <footer class="action-dock" aria-label="Operation controls">
     <p id="status-text">System online. Place the grow pod Mara sent you.</p>
@@ -619,9 +630,9 @@
   </div>
 
   <div id="toast-container" aria-live="polite"></div>
-  <script src="labor-blueprint.js?v=20260723t10"></script>
-<script src="game.js?v=20260725e3"></script>
-  <script src="radar.js?v=20260725r3"></script>
+  <script src="labor-blueprint.js?v=20260728n2"></script>
+<script src="game.js?v=20260728b6"></script>
+  <script src="radar.js?v=20260728r4"></script>
   <script src="comms-fx.js?v=20260720w1"></script>
 </body>
 </html>

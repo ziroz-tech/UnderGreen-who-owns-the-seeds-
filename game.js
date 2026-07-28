@@ -56,16 +56,6 @@ const RESOURCE_CARTRIDGE_ITEMS = Object.freeze({
 const NON_PURCHASABLE_RESOURCE_ITEMS = new Set(["water", "nutrient"]);
 const REALTIME_DAY_MS = 20000;
 const WITHER_DAYS = 1;
-const LABOR_TUTORIAL_QA_PARAM = (() => {
-  try {
-    return new URLSearchParams(window.location.search).get("labortutorial");
-  } catch (error) {
-    return null;
-  }
-})();
-const LABOR_TUTORIAL_QA_MODE = ["1", "true", "on", "qa"].includes(
-  String(LABOR_TUTORIAL_QA_PARAM || "").trim().toLowerCase()
-);
 const MARKET_ENDING_QA_PARAM = (() => {
   try {
     return new URLSearchParams(window.location.search).get("marketendingqa");
@@ -78,14 +68,10 @@ const MARKET_ENDING_QA_ID = ["lower", "medical", "upper", "rebel"].includes(
 )
   ? String(MARKET_ENDING_QA_PARAM).trim().toLowerCase()
   : null;
-const ISOLATED_QA_MODE = LABOR_TUTORIAL_QA_MODE || Boolean(MARKET_ENDING_QA_ID);
+const ISOLATED_QA_MODE = Boolean(MARKET_ENDING_QA_ID);
 const PRIMARY_SAVE_KEY = "undergreen-save-v17";
 // Repeated QA checks must never overwrite the player's regular save or records.
-const QA_SAVE_SUFFIX = LABOR_TUTORIAL_QA_MODE
-  ? "labor-tutorial-qa"
-  : MARKET_ENDING_QA_ID
-    ? "market-ending-qa"
-    : "";
+const QA_SAVE_SUFFIX = MARKET_ENDING_QA_ID ? "market-ending-qa" : "";
 const SAVE_KEY = QA_SAVE_SUFFIX ? `${PRIMARY_SAVE_KEY}-${QA_SAVE_SUFFIX}` : PRIMARY_SAVE_KEY;
 const SAVE_BACKUP_KEY = `${SAVE_KEY}-backup`;
 const LEGACY_SAVE_KEYS = [];
@@ -273,11 +259,6 @@ let startTitleTapCount = 0;
 let startTitleTapAt = 0;
 let startLaunchPending = false;
 const COMMS_DEDUPE_TRIGGERS = new Set(["plant_resource_shortage"]);
-const LABOR_TUTORIAL_EVENT_TRIGGERS = new Set([
-  "labor_first_open",
-  "labor_tutorial_cleaning_completed",
-  "labor_tutorial_completed"
-]);
 const GAME_TABS = ["farm", "market", "shop", "labor", "schedule", "broker", "radio", "info"];
 const GAME_TAB_SHORTCUTS = {
   "1": "farm",
@@ -714,35 +695,35 @@ const SUPPORT_BLUEPRINT_PIN_SCHEMAS = Object.freeze({
   },
   condition: {
     inputs: [],
-    outputs: [{ id: "value", label: "BOOL", kind: "boolean", maxLinks: Number.POSITIVE_INFINITY }]
+    outputs: [{ id: "value", label: "BOOL", kind: "boolean", maxLinks: 1 }]
   },
   harvest: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   ship: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   plant: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   care: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   procure: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   cleaning: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   resource_collect: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
-    outputs: [{ id: "failure", label: "次へ", kind: "exec", maxLinks: 1 }]
+    outputs: [{ id: "next", label: "次へ", kind: "exec", maxLinks: 1 }]
   },
   rest: {
     inputs: [{ id: "in", label: "実行", kind: "exec", maxLinks: Number.POSITIVE_INFINITY }],
@@ -2330,197 +2311,6 @@ window.UndergreenRadar = {
   setSuspicion: setRadarSuspicion
 };
 
-function createDefaultLaborTutorialState() {
-  return {
-    active: false,
-    completed: false,
-    phase: "idle",
-    targetType: "cleaning",
-    targetRobotId: "",
-    targetNodeId: "",
-    branchNodeId: "",
-    conditionNodeId: "",
-    restNodeId: "",
-    completionQueued: false,
-    pausedBefore: false,
-    deferredStories: [],
-    deferredComms: []
-  };
-}
-
-function ensureLaborTutorialState() {
-  if (!state) return createDefaultLaborTutorialState();
-  const source = state.laborTutorial && typeof state.laborTutorial === "object"
-    ? state.laborTutorial
-    : {};
-  const validPhases = new Set([
-    "idle",
-    "place_cleaning",
-    "connect_cleaning",
-    "cleaning_review",
-    "disconnect_cleaning",
-    "place_branch",
-    "place_condition",
-    "configure_condition",
-    "place_rest",
-    "connect_event_branch",
-    "connect_condition_branch",
-    "connect_true_rest",
-    "connect_false_cleaning",
-    "advanced_review"
-  ]);
-  const tutorial = {
-    ...createDefaultLaborTutorialState(),
-    ...source,
-    active: Boolean(source.active),
-    completed: Boolean(source.completed),
-    phase: validPhases.has(source.phase) ? source.phase : (source.active ? "place_cleaning" : "idle"),
-    targetType: "cleaning",
-    targetRobotId: typeof source.targetRobotId === "string" ? source.targetRobotId : "",
-    targetNodeId: typeof source.targetNodeId === "string" ? source.targetNodeId : "",
-    branchNodeId: typeof source.branchNodeId === "string" ? source.branchNodeId : "",
-    conditionNodeId: typeof source.conditionNodeId === "string" ? source.conditionNodeId : "",
-    restNodeId: typeof source.restNodeId === "string" ? source.restNodeId : "",
-    completionQueued: Boolean(source.completionQueued),
-    pausedBefore: Boolean(source.pausedBefore),
-    deferredStories: Array.isArray(source.deferredStories) ? source.deferredStories : [],
-    deferredComms: Array.isArray(source.deferredComms) ? source.deferredComms : []
-  };
-  if (tutorial.completed) tutorial.active = false;
-  if (state.debugMode && tutorial.active) {
-    state.paused = tutorial.pausedBefore;
-    tutorial.active = false;
-    tutorial.phase = "idle";
-    tutorial.completionQueued = false;
-  } else if (tutorial.active) {
-    state.paused = true;
-  }
-  state.laborTutorial = tutorial;
-  return tutorial;
-}
-
-function isLaborTutorialActive() {
-  return Boolean(state && !state.debugMode && ensureLaborTutorialState().active);
-}
-
-function laborTutorialTargetRecord() {
-  const tutorial = ensureLaborTutorialState();
-  const roster = supportRobotRoster();
-  const record = roster.find(({ robot }) => robot.id === tutorial.targetRobotId)
-    || roster.find(({ robot }) => robot.isInitialSupportRobot)
-    || roster[0]
-    || null;
-  if (record && tutorial.targetRobotId !== record.robot.id) tutorial.targetRobotId = record.robot.id;
-  return record;
-}
-
-function syncLaborTutorialLock() {
-  const active = isLaborTutorialActive();
-  const tutorial = active ? ensureLaborTutorialState() : null;
-  document.body?.classList.toggle("labor-tutorial-active", active);
-  if (document.body) document.body.dataset.laborTutorialPhase = active ? tutorial.phase : "";
-  if (active && activeTabId() !== "labor") setActiveTabSilently("labor");
-}
-
-function startLaborTutorial() {
-  if (!state || state.debugMode) return false;
-  const current = ensureLaborTutorialState();
-  if (current.completed || current.active) return false;
-  const record = laborTutorialTargetRecord();
-  if (!record) {
-    toast("接続訓練を開始できるサポートロボットがいません。", "warning");
-    return false;
-  }
-  ensureSupportRobotProfile(record.robot);
-  record.robot.supportBlueprint = createDefaultSupportBlueprint();
-  resetSupportBlueprintRuntime(record.robot);
-  selectedLaborRobotId = record.robot.id;
-  state.laborTutorial = {
-    ...createDefaultLaborTutorialState(),
-    active: true,
-    phase: "place_cleaning",
-    targetRobotId: record.robot.id,
-    pausedBefore: Boolean(state.paused)
-  };
-  state.paused = true;
-  lastTickAt = Date.now();
-  suspendNonTutorialEventsForLaborTutorial();
-  ensureOpenedTabs();
-  state.openedTabs.labor = true;
-  setActiveTabSilently("labor");
-  syncLaborTutorialLock();
-  saveGame();
-  render();
-  return true;
-}
-
-function continueAdvancedLaborTutorial() {
-  if (!state || state.debugMode) return false;
-  const tutorial = ensureLaborTutorialState();
-  if (!tutorial.active || tutorial.phase !== "cleaning_review") return false;
-  tutorial.phase = "disconnect_cleaning";
-  tutorial.completionQueued = false;
-  state.paused = true;
-  lastTickAt = Date.now();
-  syncLaborTutorialLock();
-  saveGame();
-  render();
-  return true;
-}
-
-function completeLaborTutorial() {
-  if (!state) return false;
-  const tutorial = ensureLaborTutorialState();
-  const pausedBefore = tutorial.pausedBefore;
-  state.laborTutorial = {
-    ...tutorial,
-    active: false,
-    completed: true,
-    phase: "idle",
-    completionQueued: false
-  };
-  state.paused = pausedBefore;
-  lastTickAt = Date.now();
-  restoreDeferredLaborTutorialEvents();
-  syncLaborTutorialLock();
-  saveGame();
-  render();
-  toast("接続訓練が完了しました。労務管理の全操作を利用できます。", "success");
-  return true;
-}
-
-function onLaborTutorialConnectionComplete({ robotId = "", nodeId = "" } = {}) {
-  if (!isLaborTutorialActive()) return false;
-  const tutorial = ensureLaborTutorialState();
-  if (robotId && robotId !== tutorial.targetRobotId) return false;
-  if (tutorial.targetNodeId && nodeId && nodeId !== tutorial.targetNodeId) return false;
-  const isCleaningReview = tutorial.phase === "cleaning_review";
-  const isAdvancedReview = tutorial.phase === "advanced_review";
-  if (!isCleaningReview && !isAdvancedReview) return false;
-  if (nodeId) tutorial.targetNodeId = nodeId;
-  syncLaborTutorialLock();
-  if (tutorial.completionQueued) return true;
-  tutorial.completionQueued = true;
-  saveGame();
-  const triggerName = isCleaningReview
-    ? "labor_tutorial_cleaning_completed"
-    : "labor_tutorial_completed";
-  const opened = triggerStoryEvent(triggerName, {
-    tabId: "labor",
-    robotId: tutorial.targetRobotId,
-    nodeId: tutorial.targetNodeId
-  });
-  if (!opened) {
-    tutorial.completionQueued = false;
-    if (isCleaningReview) continueAdvancedLaborTutorial();
-    else completeLaborTutorial();
-  }
-  return true;
-}
-
-window.onLaborTutorialConnectionComplete = onLaborTutorialConnectionComplete;
-window.syncLaborTutorialLock = syncLaborTutorialLock;
-
 function createInitialState(mode = "day45") {
   const initialProperty = createInitialSafeRoom();
   initialProperty.ownedAt = Date.now();
@@ -2549,7 +2339,7 @@ function createInitialState(mode = "day45") {
     resourceCartridges: { water: 0, nutrient: 0 },
     supportOS: { harvest: false, planting: false, cleaning: false, storage: false },
     automation: createDefaultSupportAutomation(),
-    laborTutorial: createDefaultLaborTutorialState(),
+
     supportPersonalityTriggerState: { lastProcessed: {} },
     supportRobotTalk: createDefaultSupportRobotTalkState(),
     radar: createDefaultRadarState(),
@@ -3637,18 +3427,6 @@ function repairPlayableState() {
   }
 }
 
-function prepareLaborTutorialQaState() {
-  state.debugMode = false;
-  state.ended = false;
-  state.resultShown = false;
-  state.paused = false;
-  state.automationTabUnlocked = true;
-  state.supportOS = { harvest: false, planting: false, cleaning: false, storage: false };
-  state.openedTabs = { farm: true };
-  grantFloorDevice("support_robot", { supportBlueprintPreset: "empty" });
-  state.log = "LABOR TUTORIAL QA // 通常セーブから分離された接続訓練です。";
-}
-
 function prepareMarketEndingQaState() {
   const marketId = MARKET_ENDING_QA_ID || "lower";
   const previewQuantity = 12;
@@ -3683,8 +3461,7 @@ function loadGame() {
     ? { state: createInitialState("day45"), sourceKey: null }
     : readSavedGame();
   state = loaded.state || createInitialState();
-  if (LABOR_TUTORIAL_QA_MODE) prepareLaborTutorialQaState();
-  else if (MARKET_ENDING_QA_ID) prepareMarketEndingQaState();
+  if (MARKET_ENDING_QA_ID) prepareMarketEndingQaState();
   state.commsSeen ||= {};
   state.commsChoices ||= {};
   state.commsOpen ||= [];
@@ -3698,7 +3475,7 @@ function loadGame() {
   state.unlocks ||= {};
   state.mode = validPlayMode(state.mode || "day45", "day45");
   state.debugMode = Boolean(state.debugMode);
-  ensureLaborTutorialState();
+
   state.day30Recorded = Boolean(state.day30Recorded);
   state.day30RecordId ||= null;
   state.supportRobotGranted = Boolean(state.supportRobotGranted);
@@ -3789,7 +3566,7 @@ function loadGame() {
   ensureSupportRobotGrant();
   restoreStoryState();
   restoreCommsState();
-  if (isLaborTutorialActive()) suspendNonTutorialEventsForLaborTutorial();
+
   if (!isMarketAvailable(selectedMarket)) selectedMarket = "lower";
   const hasLegacyImmediateEvent = state.event && !state.marketEventQueue.length;
   if (!state.news || hasLegacyImmediateEvent) updateMarketForDay();
@@ -4300,7 +4077,7 @@ function createDefaultSupportBlueprint() {
   };
 }
 
-function createSupportBlueprintPreset(presetId = "white-work") {
+function createSupportBlueprintPreset(presetId = "empty") {
   const normalizedPresetId = String(presetId || "").trim();
   if (!normalizedPresetId || normalizedPresetId === "empty") {
     return createDefaultSupportBlueprint();
@@ -4665,18 +4442,24 @@ function ensureSupportRobotProfile(device) {
   device.supportBlueprint = normalizeSupportBlueprint(device.supportBlueprint);
   const nodeIds = new Set(device.supportBlueprint.nodes.map((node) => node.id));
   const previousRuntime = device.supportBlueprintRuntime;
-  const memory = previousRuntime?.version === 3 && previousRuntime.memory && typeof previousRuntime.memory === "object"
+  const runtimeReady = previousRuntime?.version === 5;
+  const memory = runtimeReady && previousRuntime.memory && typeof previousRuntime.memory === "object"
     ? Object.fromEntries(Object.entries(previousRuntime.memory).filter(([nodeId]) => nodeIds.has(nodeId)))
     : {};
   device.supportBlueprintRuntime = {
-    version: 3,
+    version: 5,
     memory,
+    resumeNodeId: runtimeReady && nodeIds.has(previousRuntime.resumeNodeId) ? previousRuntime.resumeNodeId : "",
     nodeBadges: {},
-    activeNodeId: nodeIds.has(previousRuntime?.activeNodeId) ? previousRuntime.activeNodeId : "",
-    lastNodeId: nodeIds.has(previousRuntime?.lastNodeId) ? previousRuntime.lastNodeId : "",
-    lastStatus: Object.values(SUPPORT_BLUEPRINT_STATUS).includes(previousRuntime?.lastStatus)
+    activeNodeId: runtimeReady && nodeIds.has(previousRuntime.activeNodeId) ? previousRuntime.activeNodeId : "",
+    lastNodeId: runtimeReady && nodeIds.has(previousRuntime.lastNodeId) ? previousRuntime.lastNodeId : "",
+    lastStatus: runtimeReady && Object.values(SUPPORT_BLUEPRINT_STATUS).includes(previousRuntime.lastStatus)
       ? previousRuntime.lastStatus
-      : SUPPORT_BLUEPRINT_STATUS.FAILURE
+      : SUPPORT_BLUEPRINT_STATUS.FAILURE,
+    trace: runtimeReady && Array.isArray(previousRuntime.trace)
+      ? previousRuntime.trace.filter((nodeId) => nodeIds.has(nodeId)).slice(-32)
+      : [],
+    traceSerial: runtimeReady ? Math.max(0, Number(previousRuntime.traceSerial) || 0) : 0
   };
   supportRobotProfileReady.add(device);
   return device;
@@ -4685,12 +4468,15 @@ function ensureSupportRobotProfile(device) {
 function resetSupportBlueprintRuntime(robot) {
   if (!robot) return;
   robot.supportBlueprintRuntime = {
-    version: 3,
+    version: 5,
     memory: {},
+    resumeNodeId: "",
     nodeBadges: {},
     activeNodeId: "",
     lastNodeId: "",
-    lastStatus: SUPPORT_BLUEPRINT_STATUS.FAILURE
+    lastStatus: SUPPORT_BLUEPRINT_STATUS.FAILURE,
+    trace: [],
+    traceSerial: 0
   };
 }
 function createFloorDevice(type, options = {}) {
@@ -4699,9 +4485,7 @@ function createFloorDevice(type, options = {}) {
   if (type === "support_robot") {
     const requestedPreset = typeof options.supportBlueprintPreset === "string"
       ? options.supportBlueprintPreset
-      : hasAllBasicSupportOS()
-        ? "white-work"
-        : "empty";
+      : "empty";
     device.supportBlueprint = createSupportBlueprintPreset(requestedPreset);
   }
   ensureSupportRobotProfile(device);
@@ -7457,7 +7241,7 @@ function unseenEntryBadge() {
 }
 
 function isOpeningFarmOnlyPhase() {
-  return Boolean(state && !state.debugMode && !LABOR_TUTORIAL_QA_MODE && !state.marketTabUnlocked);
+  return Boolean(state && !state.debugMode && !state.marketTabUnlocked);
 }
 
 function isTabAvailable(tabId) {
@@ -7487,8 +7271,7 @@ function updateTabIndicators() {
   document.querySelectorAll(".tab[data-tab]").forEach((tab) => {
     const tabId = tab.dataset.tab;
     const available = isTabAvailable(tabId);
-    const tutorialLocked = isLaborTutorialActive() && tabId !== "labor";
-    const locked = !available || tutorialLocked;
+    const locked = !available;
     const active = tab.classList.contains("active");
     const nestedUnseen = tabId === "market"
       ? hasUnseenMarketEntries()
@@ -7499,18 +7282,13 @@ function updateTabIndicators() {
     delete tab.dataset.lockHint;
     tab.removeAttribute("title");
     tab.removeAttribute("aria-label");
-    tab.classList.toggle("new-tab-alert", available && !tutorialLocked && !active && (!state.openedTabs[tabId] || nestedUnseen));
+    tab.classList.toggle("new-tab-alert", available && !active && (!state.openedTabs[tabId] || nestedUnseen));
     if (tabId === "farm") tab.classList.toggle("needs-cleaning-tab", cleaningNeeded);
   });
 }
 
 function switchTab(tabId) {
   const previousTab = document.querySelector(".screen.active")?.id?.replace("-screen", "");
-  if (isLaborTutorialActive() && tabId !== "labor") {
-    toast("接続訓練を完了するまで、ほかの操作はロックされています。", "warning");
-    rejectFeedback();
-    return;
-  }
   if (!isTabAvailable(tabId)) {
     toast("Action unavailable right now.", "warning");
     rejectFeedback();
@@ -7613,10 +7391,6 @@ function resetOperationSurface({ resetAudio = false } = {}) {
 }
 
 function ensureActiveTabAvailable() {
-  if (isLaborTutorialActive()) {
-    if (activeTabId() !== "labor") setActiveTabSilently("labor");
-    return;
-  }
   const tabId = activeTabId();
   if (!GAME_TABS.includes(tabId) || !isTabAvailable(tabId)) setActiveTabSilently("farm");
 }
@@ -7704,196 +7478,9 @@ function hasQueuedStory(event) {
   return [activeStory, ...pendingStories].some((entry) => entry?.event?.id === event?.id);
 }
 
-function isLaborTutorialEventTrigger(trigger = "") {
-  return LABOR_TUTORIAL_EVENT_TRIGGERS.has(String(trigger));
-}
-
-function shouldDeferEventForLaborTutorial(trigger = "") {
-  return isLaborTutorialActive() && !isLaborTutorialEventTrigger(trigger);
-}
-
-function cloneDeferredEventContext(context = {}) {
-  try {
-    return JSON.parse(JSON.stringify(context || {}));
-  } catch {
-    return {};
-  }
-}
-
-function deferredEventEntryKey(entry = {}) {
-  let contextKey = "";
-  try {
-    contextKey = JSON.stringify(entry.context || {});
-  } catch {
-    contextKey = "";
-  }
-  return String(entry.id || "") + "|" + contextKey;
-}
-
-function appendLaborTutorialDeferredEntries(target, entries = []) {
-  const keys = new Set(target.map(deferredEventEntryKey));
-  entries.forEach((entry) => {
-    if (!entry?.id) return;
-    const normalized = {
-      id: String(entry.id),
-      page: Math.max(0, Number(entry.page) || 0),
-      context: cloneDeferredEventContext(entry.context)
-    };
-    const key = deferredEventEntryKey(normalized);
-    if (keys.has(key)) return;
-    keys.add(key);
-    target.push(normalized);
-  });
-}
-
-function suspendNonTutorialEventsForLaborTutorial() {
-  if (!isLaborTutorialActive()) return false;
-  const tutorial = ensureLaborTutorialState();
-  const stories = [activeStory, ...pendingStories].filter(Boolean);
-  const tutorialStories = stories.filter((entry) => isLaborTutorialEventTrigger(entry?.event?.trigger));
-  appendLaborTutorialDeferredEntries(
-    tutorial.deferredStories,
-    stories
-      .filter((entry) => !isLaborTutorialEventTrigger(entry?.event?.trigger))
-      .map(serializeStoryEntry)
-      .filter(Boolean)
-  );
-  activeStory = tutorialStories.shift() || null;
-  pendingStories = tutorialStories;
-
-  const comms = [activeComms, ...pendingComms].filter(Boolean);
-  const tutorialComms = comms.filter((entry) => isLaborTutorialEventTrigger(entry?.event?.trigger));
-  appendLaborTutorialDeferredEntries(
-    tutorial.deferredComms,
-    comms
-      .filter((entry) => !isLaborTutorialEventTrigger(entry?.event?.trigger))
-      .map(serializeCommsEntry)
-      .filter(Boolean)
-  );
-  activeComms = tutorialComms.shift() || null;
-  pendingComms = tutorialComms;
-
-  persistStoryState();
-  persistCommsState();
-  renderStoryComms();
-  renderComms();
-  return true;
-}
-
-function deferStoryEventsForLaborTutorial(trigger, context = {}) {
-  if (!shouldDeferEventForLaborTutorial(trigger)) return false;
-  const tutorial = ensureLaborTutorialState();
-  const deferredIds = new Set(tutorial.deferredStories.map((entry) => entry?.id));
-  const events = STORY_EVENTS
-    .filter((entry) => storyEventMatches(entry, trigger, context))
-    .filter((event) => !hasQueuedStory(event) && !deferredIds.has(event.id));
-  if (!events.length) return false;
-  state.storySeen ||= {};
-  const capturedAt = Date.now();
-  const serialized = events.map((event) => {
-    state.storySeen[event.id] = capturedAt;
-    return { id: event.id, page: 0, context };
-  });
-  appendLaborTutorialDeferredEntries(tutorial.deferredStories, serialized);
-  return true;
-}
-
-function deferCommsEventsForLaborTutorial(trigger, context = {}) {
-  if (!shouldDeferEventForLaborTutorial(trigger)) return false;
-  const tutorial = ensureLaborTutorialState();
-  const deferredKeys = new Set(tutorial.deferredComms.map(deferredEventEntryKey));
-  const events = COMM_EVENTS
-    .filter((entry) => commsEventMatches(entry, trigger, context))
-    .filter((event) => !hasMatchingQueuedComms(event, context))
-    .filter((event) => !deferredKeys.has(deferredEventEntryKey({ id: event.id, context })));
-  if (!events.length) return false;
-  state.commsSeen ||= {};
-  const capturedAt = Date.now();
-  const serialized = events.map((event) => {
-    state.commsSeen[event.id] = capturedAt;
-    return { id: event.id, page: 0, context };
-  });
-  appendLaborTutorialDeferredEntries(tutorial.deferredComms, serialized);
-  return true;
-}
-
-function deferCommsTriggerForLaborTutorial(trigger, context = {}, options = {}) {
-  if (!shouldDeferEventForLaborTutorial(trigger)) return false;
-  const storyDeferred = !options.skipStory && deferStoryEventsForLaborTutorial(trigger, context);
-  const deferred = storyDeferred || deferCommsEventsForLaborTutorial(trigger, context);
-  if (deferred) saveGame();
-  return deferred;
-}
-
-function activatePendingCommsAfterStories() {
-  if (activeStory || activeComms || !pendingComms.length) return false;
-  activeComms = pendingComms.shift() || null;
-  persistCommsState();
-  renderComms();
-  return Boolean(activeComms);
-}
-
-function restoreDeferredLaborTutorialEvents() {
-  if (!state) return false;
-  const tutorial = ensureLaborTutorialState();
-  const deferredStories = tutorial.deferredStories.splice(0);
-  const deferredComms = tutorial.deferredComms.splice(0);
-
-  const restoredStories = deferredStories
-    .map((entry) => {
-      const event = STORY_EVENTS.find((candidate) => candidate.id === entry.id);
-      return event ? { event, page: Math.max(0, Number(entry.page) || 0), context: entry.context || {} } : null;
-    })
-    .filter(Boolean)
-    .filter(storyEntryStillValid)
-    .filter((entry) => !hasQueuedStory(entry.event));
-  if (activeStory) {
-    pendingStories.push(...restoredStories);
-  } else {
-    activeStory = restoredStories.shift() || null;
-    pendingStories.push(...restoredStories);
-  }
-
-  const queuedCommsKeys = new Set(
-    [activeComms, ...pendingComms]
-      .filter(Boolean)
-      .map(serializeCommsEntry)
-      .map(deferredEventEntryKey)
-  );
-  const restoredComms = deferredComms
-    .map((entry) => {
-      const event = COMM_EVENTS.find((candidate) => candidate.id === entry.id);
-      return event ? { event, page: Math.max(0, Number(entry.page) || 0), context: entry.context || {} } : null;
-    })
-    .filter(Boolean)
-    .filter(commsEntryStillValid)
-    .filter((entry) => {
-      const key = deferredEventEntryKey(serializeCommsEntry(entry));
-      if (queuedCommsKeys.has(key)) return false;
-      queuedCommsKeys.add(key);
-      return true;
-    });
-  if (activeStory || activeComms) {
-    pendingComms.push(...restoredComms);
-  } else {
-    activeComms = restoredComms.shift() || null;
-    pendingComms.push(...restoredComms);
-  }
-
-  persistStoryState();
-  persistCommsState();
-  renderStoryComms();
-  renderComms();
-  return Boolean(activeStory || activeComms || pendingStories.length || pendingComms.length);
-}
-
 function triggerStoryEvent(trigger, context = {}) {
   if (!state || state.ended || state.debugMode) return false;
-  if (shouldDeferEventForLaborTutorial(trigger)) {
-    const deferred = deferStoryEventsForLaborTutorial(trigger, context);
-    if (deferred) saveGame();
-    return deferred;
-  }
+
   const events = STORY_EVENTS
     .filter((entry) => storyEventMatches(entry, trigger, context))
     .filter((event) => !hasQueuedStory(event));
@@ -8330,12 +7917,6 @@ function runStoryEffect(effect, context = {}) {
       });
     return;
   }
-  if (effect.action === "labor_tutorial" && effect.value) {
-    if (effect.value === "start") startLaborTutorial();
-    if (effect.value === "advanced") continueAdvancedLaborTutorial();
-    if (effect.value === "complete") completeLaborTutorial();
-    return;
-  }
   if (effect.action === "activate_labor_package_all" && effect.value) {
     const result = typeof window.activateLaborBlueprintPackageForAll === "function"
       ? window.activateLaborBlueprintPackageForAll(effect.value)
@@ -8426,9 +8007,7 @@ function clearStoryForTrigger(trigger) {
 
 function triggerComms(trigger, context = {}, options = {}) {
   if (!state || state.ended || state.debugMode) return false;
-  if (shouldDeferEventForLaborTutorial(trigger)) {
-    return deferCommsTriggerForLaborTutorial(trigger, context, options);
-  }
+
   if (!options.skipStory && triggerStoryEvent(trigger, context)) return true;
   const events = COMM_EVENTS
     .filter((entry) => commsEventMatches(entry, trigger, context))
@@ -8511,7 +8090,7 @@ function isRadarSimulationRunning() {
     && !state.debugMode
     && state.timeUnlocked
     && !state.paused
-    && !isLaborTutorialActive()
+
     && !state.ended
     && !startScreenOpen
     && !settingsPanelOpen
@@ -11663,6 +11242,11 @@ function tickSupportBlueprintNode(context, nodeId) {
   context.steps += 1;
   context.visiting.add(nodeId);
   context.runtime.lastNodeId = nodeId;
+  if (!Array.isArray(context.runtime.trace)) context.runtime.trace = [];
+  if (context.runtime.trace[context.runtime.trace.length - 1] !== nodeId) {
+    context.runtime.trace.push(nodeId);
+    if (context.runtime.trace.length > 32) context.runtime.trace.shift();
+  }
 
   let result = SUPPORT_BLUEPRINT_STATUS.FAILURE;
   if (node.type === "event") {
@@ -11740,10 +11324,15 @@ function tickSupportBlueprintNode(context, nodeId) {
       result = SUPPORT_BLUEPRINT_STATUS.FAILURE;
     }
   } else if (SUPPORT_BLUEPRINT_ACTION_TYPES.includes(node.type)) {
-    result = executeSupportBlueprintAction(context, node);
-    if (result === SUPPORT_BLUEPRINT_STATUS.FAILURE) {
-      const child = supportBlueprintOrderedLinks(context, node.id, "failure")[0];
-      if (child) result = tickSupportBlueprintNode(context, child.to);
+    const actionResult = executeSupportBlueprintAction(context, node);
+    const child = supportBlueprintOrderedLinks(context, node.id, "next")[0];
+    if (actionResult === SUPPORT_BLUEPRINT_STATUS.SUCCESS) {
+      context.runtime.resumeNodeId = child?.to || "";
+      result = SUPPORT_BLUEPRINT_STATUS.SUCCESS;
+    } else if (child) {
+      result = tickSupportBlueprintNode(context, child.to);
+    } else {
+      result = SUPPORT_BLUEPRINT_STATUS.FAILURE;
     }
   }
 
@@ -11758,6 +11347,8 @@ function runSupportBlueprint(base, robot, { startNodeId = "", completedNodeId = 
   runtime.activeNodeId = "";
   runtime.lastNodeId = "";
   runtime.nodeBadges = {};
+  runtime.trace = [];
+  runtime.traceSerial = Math.max(0, Number(runtime.traceSerial) || 0) + 1;
   const context = {
     base,
     robot,
@@ -11772,7 +11363,11 @@ function runSupportBlueprint(base, robot, { startNodeId = "", completedNodeId = 
   if (completedNodeId && context.nodeById.has(completedNodeId)) {
     setSupportBlueprintNodeBadge(context, completedNodeId, "充電完了 → 次へ", "ok");
   }
-  const entryNodeId = startNodeId && context.nodeById.has(startNodeId) ? startNodeId : blueprint.rootId;
+  const resumeNodeId = context.nodeById.has(runtime.resumeNodeId) ? runtime.resumeNodeId : "";
+  const entryNodeId = startNodeId && context.nodeById.has(startNodeId)
+    ? startNodeId
+    : (resumeNodeId || blueprint.rootId);
+  runtime.resumeNodeId = "";
   const status = tickSupportBlueprintNode(context, entryNodeId);
   runtime.lastStatus = status;
   return { status, acted: context.actedCount > 0 };
@@ -11805,6 +11400,10 @@ function processSupportRobots(deltaDays) {
           robot.supportBlueprintRuntime.nodeBadges = nodeId
             ? { [nodeId]: { text: `充電中 ${seconds.toFixed(1)} SEC`, kind: "ok" } }
             : {};
+          if (nodeId && robot.supportBlueprintRuntime.trace?.[0] !== nodeId) {
+            robot.supportBlueprintRuntime.trace = [nodeId];
+            robot.supportBlueprintRuntime.traceSerial = Math.max(0, Number(robot.supportBlueprintRuntime.traceSerial) || 0) + 1;
+          }
           return;
         }
         let chargeContinuation = null;
@@ -11817,6 +11416,7 @@ function processSupportRobots(deltaDays) {
           }
         }
 
+        if (!chargeContinuation && (Number(robot.supportCooldown) || 0) > SUPPORT_RESOURCE_EPSILON) return;
         const nextIdleScanAt = supportRobotNextIdleScanAt.get(robot) || 0;
         if (!chargeContinuation && scanNow < nextIdleScanAt) return;
 
@@ -12147,7 +11747,7 @@ function realtimeTick() {
     }
     return;
   }
-  if (state.ended || state.paused || isLaborTutorialActive() || state.radar?.tutorialActive) {
+  if (state.ended || state.paused || state.radar?.tutorialActive) {
     if (now - lastRenderAt >= Math.max(500, runtimeRenderIntervalMs())) {
       renderRuntime();
       lastRenderAt = now;
@@ -15320,7 +14920,7 @@ function renderInfo() {
   `;
 }
 function render() {
-  syncLaborTutorialLock();
+
   ensureActiveTabAvailable();
   const cleaningNeeded = ownedBases().some((base) => [...base.shelves, ...base.floorDevices].some(needsCleaning));
   document.querySelector('[data-tab="farm"]')?.classList.toggle("needs-cleaning-tab", cleaningNeeded);
@@ -15342,7 +14942,7 @@ function render() {
 }
 
 function renderRuntime() {
-  syncLaborTutorialLock();
+
   ensureActiveTabAvailable();
   updateTabIndicators();
   renderHeader();
@@ -15382,47 +14982,16 @@ function renderTimeControl() {
   const gachaPaused = isRobotGachaBlocking();
   const deadlinePaused = isTimedModeCountdownBlocking();
   const settingsPaused = settingsPanelOpen;
-  const tutorialPaused = isLaborTutorialActive();
-  const interactionLocked = settingsPaused || commsPaused || gachaPaused || deadlinePaused || tutorialPaused;
+  const interactionLocked = settingsPaused || commsPaused || gachaPaused || deadlinePaused;
   button.disabled = state.ended || interactionLocked;
   button.classList.toggle("paused", state.paused || !state.timeUnlocked || interactionLocked);
-  document.getElementById("time-control-label").textContent = state.ended ? "OPERATION CLOSED" : settingsPaused ? "SETTINGS OPEN" : deadlinePaused ? "DEADLINE NOTICE" : gachaPaused ? "CONTRACT PAUSED" : commsPaused ? "COMMS PAUSED" : tutorialPaused ? "CONNECTION TRAINING" : !state.timeUnlocked ? "TUTORIAL DAY LOCK" : state.paused ? "REALTIME PAUSED" : "REALTIME RUNNING";
-  document.getElementById("time-control-text").textContent = state.ended ? "Game ended" : settingsPaused ? "設定中" : deadlinePaused ? "残り日数を確認" : gachaPaused ? "契約演出中" : commsPaused ? "通信中" : tutorialPaused ? "接続訓練中" : !state.timeUnlocked ? "DAY停止中" : state.paused ? "Resume" : "Pause";
+  document.getElementById("time-control-label").textContent = state.ended ? "OPERATION CLOSED" : settingsPaused ? "SETTINGS OPEN" : deadlinePaused ? "DEADLINE NOTICE" : gachaPaused ? "CONTRACT PAUSED" : commsPaused ? "COMMS PAUSED" : !state.timeUnlocked ? "TUTORIAL DAY LOCK" : state.paused ? "REALTIME PAUSED" : "REALTIME RUNNING";
+  document.getElementById("time-control-text").textContent = state.ended ? "Game ended" : settingsPaused ? "設定中" : deadlinePaused ? "残り日数を確認" : gachaPaused ? "契約演出中" : commsPaused ? "通信中" : !state.timeUnlocked ? "DAY停止中" : state.paused ? "Resume" : "Pause";
   document.getElementById("time-control-icon").textContent = state.ended ? "■" : interactionLocked || !state.timeUnlocked ? "LOCK" : state.paused ? "▶" : "Ⅱ";
 }
 
-let laborTutorialBlockedFeedbackAt = 0;
-
-function isLaborTutorialInteractionTarget(target, eventType = "") {
-  if (!target?.closest) return false;
-  if (target.closest("#story-comms-overlay, #comms-banner, #toast-container, #start-screen")) return true;
-  if (target.closest('.tab[data-tab="labor"]')) return true;
-  const tutorial = ensureLaborTutorialState();
-  if (tutorial.phase.endsWith("_review")) return false;
-  if (target.closest("#labor-screen .labor-quick-guide")) return true;
-  if (target.closest("#labor-screen #labor-blueprint-editor")) return true;
-  if (eventType === "wheel" && target.closest("#labor-screen")) return true;
-  if (tutorial.phase.startsWith("place_") && target.closest("#labor-screen .blueprint-palette-panel")) return true;
-  return false;
-}
-
-function bindLaborTutorialInputGuard() {
-  const guard = (event) => {
-    if (!isLaborTutorialActive() || isLaborTutorialInteractionTarget(event.target, event.type)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (["click", "pointerdown"].includes(event.type) && Date.now() - laborTutorialBlockedFeedbackAt > 900) {
-      laborTutorialBlockedFeedbackAt = Date.now();
-      toast("接続訓練中です。表示された手順を完了してください。", "warning");
-    }
-  };
-  ["pointerdown", "click", "contextmenu", "wheel", "keydown"].forEach((type) => {
-    document.addEventListener(type, guard, { capture: true, passive: false });
-  });
-}
-
 function bindEvents() {
-  bindLaborTutorialInputGuard();
+
   bindSupportRobotGachaEvents();
   document.getElementById("settings-button")?.addEventListener("click", () => openSettingsPanel("system"));
   document.getElementById("start-settings-button")?.addEventListener("click", () => openSettingsPanel("system"));
@@ -16280,23 +15849,6 @@ function clearDragState() {
   window.requestAnimationFrame(applyUiGuide);
 }
 
-function launchLaborTutorialQaMode() {
-  clearSessionInteractionState();
-  startScreenOpen = false;
-  pausedBeforeStartScreen = false;
-  state.paused = isLaborTutorialActive();
-  lastTickAt = Date.now();
-  document.body.classList.remove("start-screen-open");
-  document.body.classList.add("labor-tutorial-qa");
-  const startScreen = document.getElementById("start-screen");
-  startScreen?.classList.add("hidden");
-  startScreen?.setAttribute("aria-hidden", "true");
-  document.getElementById("modal-backdrop")?.classList.add("hidden");
-  document.getElementById("comms-banner")?.classList.add("hidden");
-  document.getElementById("story-comms-overlay")?.classList.add("hidden");
-  switchTab("labor");
-}
-
 async function bootstrap() {
   loadAppSettings();
   applyRuntimeSettings({ restartLoop: false });
@@ -16323,10 +15875,7 @@ async function bootstrap() {
   render();
   inputDiagnosticState.renderReached = true;
   pushLogEntry(state.log, "status", { duration: 5200 });
-  if (LABOR_TUTORIAL_QA_MODE) {
-    setInputDiagnosticStage("labor-tutorial-qa");
-    launchLaborTutorialQaMode();
-  } else if (state.pendingDay30Result) {
+  if (state.pendingDay30Result) {
     setInputDiagnosticStage("pending-result");
     startScreenOpen = false;
     pausedBeforeStartScreen = false;
