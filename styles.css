@@ -3587,6 +3587,96 @@ html.low-spec-mode .support-robot-talk-marker::before {
   height: 34px;
   object-fit: cover;
 }
+.drag-ghost.equipment-drag-ghost {
+  display: block;
+  width: var(--equipment-ghost-width, 108px);
+  height: var(--equipment-ghost-height, 86px);
+  max-height: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: .96;
+  overflow: visible;
+  transform: translate(-50%, -50%) scale(.96);
+}
+
+.equipment-drag-ghost > * {
+  display: none !important;
+}
+
+.equipment-drag-ghost > img,
+.equipment-drag-ghost > .facility-facing-layer,
+.equipment-drag-ghost > .equipment-drop-contact {
+  display: block !important;
+}
+
+.equipment-drag-ghost .facility-facing-layer {
+  position: absolute;
+  inset: 0;
+  transform: none !important;
+}
+
+.equipment-drag-ghost .facility-facing-layer > * {
+  display: none !important;
+}
+
+.equipment-drag-ghost .facility-facing-layer > .equipment-sprite {
+  display: block !important;
+}
+
+.equipment-drag-ghost > img,
+.equipment-drag-ghost .equipment-sprite {
+  position: absolute !important;
+  right: auto !important;
+  bottom: 10px !important;
+  left: 50% !important;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+  object-position: center bottom !important;
+  filter: drop-shadow(0 10px 7px rgba(0, 0, 0, .58));
+  transform: translateX(-50%) !important;
+}
+
+.equipment-drop-contact {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  color: var(--yellow);
+  background: rgba(18, 13, 2, .96);
+  box-shadow: 0 0 0 3px rgba(3, 10, 8, .88), 0 0 18px currentColor;
+  transform: translate(-50%, 58%) rotate(45deg);
+  transition: color .12s ease, background .12s ease, box-shadow .12s ease;
+  pointer-events: none;
+}
+
+.equipment-drop-contact::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid currentColor;
+  background: currentColor;
+  opacity: .82;
+}
+
+.equipment-drag-ghost.drop-valid .equipment-drop-contact {
+  color: var(--green-bright);
+  background: rgba(4, 25, 17, .97);
+  box-shadow: 0 0 0 3px rgba(3, 10, 8, .9), 0 0 24px rgba(114, 255, 184, .92);
+}
+
+.equipment-drag-ghost.drop-invalid .equipment-drop-contact {
+  color: #ff765e;
+  background: rgba(35, 8, 5, .97);
+  box-shadow: 0 0 0 3px rgba(3, 10, 8, .9), 0 0 18px rgba(255, 118, 94, .72);
+}
 
 .seed-option:hover,
 .seed-option.active {

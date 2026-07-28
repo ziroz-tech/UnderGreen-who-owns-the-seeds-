@@ -8869,7 +8869,7 @@ function beginPointerDrag(source, event, payload, startX = event.clientX, startY
   let anchor = { x: 0, y: 0 };
   if (dragPayload.type === "equipment") {
     const record = findOwnedEquipment(dragPayload.kind, dragPayload.id);
-    if (record) anchor = dragAnchorForItem(record.item, dragPayload.kind, startX, startY);
+    if (record) anchor = dragAnchorForItem(record.item, dragPayload.kind);
   }
   pointerDrag = {
     source,
@@ -8880,6 +8880,7 @@ function beginPointerDrag(source, event, payload, startX = event.clientX, startY
     anchorY: anchor.y,
     dropOrigin: null,
     dropUnitId: null,
+    dropCell: null,
     moved: false,
     ghost: null,
     ghostHalfWidth: 78,
@@ -9051,25 +9052,30 @@ function placeItemAt(kind, id, x, y, targetElement = null, options = {}) {
   return true;
 }
 
-function dragAnchorForItem(item, kind, clientX, clientY) {
+function dragAnchorForItem(item, kind) {
   const size = footprint({ ...item, kind });
-  if (!item.placed) {
+  if (isFacilityCameraReversed()) return { x: 0, y: 0 };
+  return {
+    x: Math.max(0, size.width - 1),
+    y: Math.max(0, size.height - 1)
+  };
+}
+
+function equipmentDragContactPoint(drag) {
+  const contact = drag?.ghost?.querySelector?.(".equipment-drop-contact");
+  const contactRect = contact?.getBoundingClientRect();
+  if (contactRect) {
     return {
-      x: Math.floor((size.width - 1) / 2),
-      y: Math.floor((size.height - 1) / 2)
+      x: contactRect.left + contactRect.width / 2,
+      y: contactRect.top + contactRect.height / 2
     };
   }
-  let nearest = { x: 0, y: 0, distance: Infinity };
-  for (let offsetY = 0; offsetY < size.height; offsetY += 1) {
-    for (let offsetX = 0; offsetX < size.width; offsetX += 1) {
-      const cell = document.querySelector(`[data-grid-x="${item.x + offsetX}"][data-grid-y="${item.y + offsetY}"]`);
-      if (!cell) continue;
-      const rect = cell.getBoundingClientRect();
-      const distance = Math.hypot(clientX - (rect.left + rect.width / 2), clientY - (rect.top + rect.height / 2));
-      if (distance < nearest.distance) nearest = { x: offsetX, y: offsetY, distance };
-    }
-  }
-  return { x: nearest.x, y: nearest.y };
+  const ghostRect = drag?.ghost?.getBoundingClientRect();
+  if (!ghostRect) return null;
+  return {
+    x: ghostRect.left + ghostRect.width / 2,
+    y: ghostRect.bottom
+  };
 }
 
 function movingCoverageRadius(item, kind) {
@@ -15632,7 +15638,17 @@ function bindEvents() {
         document.body.classList.add("equipment-drag-active");
       }
       pointerDrag.ghost = pointerDrag.source.cloneNode(true);
-      pointerDrag.ghost.className = "drag-ghost";
+      pointerDrag.ghost.className = `drag-ghost${dragPayload.type === "equipment" ? " equipment-drag-ghost" : ""}`;
+      if (dragPayload.type === "equipment") {
+        const dragRecord = findOwnedEquipment(dragPayload.kind, dragPayload.id);
+        const dragSize = dragRecord ? footprint({ ...dragRecord.item, kind: dragPayload.kind }) : { width: 1, height: 1 };
+        pointerDrag.ghost.style.setProperty("--equipment-ghost-width", `${Math.min(210, 108 + (dragSize.width - 1) * 34)}px`);
+        pointerDrag.ghost.style.setProperty("--equipment-ghost-height", `${Math.min(150, 86 + (dragSize.height - 1) * 20)}px`);
+        const contact = document.createElement("span");
+        contact.className = "equipment-drop-contact";
+        contact.setAttribute("aria-hidden", "true");
+        pointerDrag.ghost.appendChild(contact);
+      }
       pointerDrag.ghost.removeAttribute("data-guide-active");
       pointerDrag.ghost.querySelectorAll?.(".guide-pulse, [data-guide-active]").forEach((element) => {
         element.classList.remove("guide-pulse");
@@ -15649,16 +15665,20 @@ function bindEvents() {
     const ghostY = Math.min(Math.max(event.clientY, pointerDrag.ghostHalfHeight + ghostMargin), window.innerHeight - pointerDrag.ghostHalfHeight - ghostMargin);
     pointerDrag.ghost.style.left = `${ghostX}px`;
     pointerDrag.ghost.style.top = `${ghostY}px`;
+    const dropPoint = dragPayload.type === "equipment"
+      ? equipmentDragContactPoint(pointerDrag) || { x: event.clientX, y: event.clientY }
+      : { x: event.clientX, y: event.clientY };
     const ignoredItem = dragPayload.type === "equipment" ? pointerDrag.source : null;
-    const hovered = interactiveElementFromPoint(event.clientX, event.clientY, ignoredItem);
+    const hovered = interactiveElementFromPoint(dropPoint.x, dropPoint.y, ignoredItem);
     const slot = hovered && hovered.closest("[data-shelf][data-slot]");
     const unitTarget = hovered && hovered.closest("[data-select-unit]");
     const cell = dragPayload.type === "equipment"
-      ? gridCellAtPoint(event.clientX, event.clientY)
+      ? gridCellAtPoint(dropPoint.x, dropPoint.y)
       : hovered && hovered.closest("[data-grid-x][data-grid-y]");
     document.querySelectorAll(".drop-target, .drop-footprint, .seed-drop-target, .moving-coverage").forEach(clearMovingCoverageClasses);
     pointerDrag.dropOrigin = null;
     pointerDrag.dropUnitId = null;
+    pointerDrag.dropCell = null;
     if (dragPayload.type === "seed" && slot) {
       const plant = currentShelves()[Number(slot.dataset.shelf)]?.slots[Number(slot.dataset.slot)];
       if (!plant) {
@@ -15678,10 +15698,15 @@ function bindEvents() {
       const originY = Number(cell.dataset.gridY) - pointerDrag.anchorY;
       if (item && canPlace({ ...item, kind: dragPayload.kind }, originX, originY, item.id)) {
         pointerDrag.dropOrigin = { x: originX, y: originY };
+        pointerDrag.dropCell = cell;
         highlightDragFootprint(item, dragPayload.kind, originX, originY);
       } else {
         pointerDrag.dropOrigin = null;
       }
+    }
+    if (dragPayload.type === "equipment") {
+      pointerDrag.ghost.classList.toggle("drop-valid", Boolean(pointerDrag.dropOrigin));
+      pointerDrag.ghost.classList.toggle("drop-invalid", !pointerDrag.dropOrigin);
     }
   });
 
@@ -15728,11 +15753,12 @@ function bindEvents() {
       return;
     }
     const payload = { ...dragPayload };
+    const equipmentCell = pointerDrag.dropCell;
     const ignoredItem = payload.type === "equipment" ? pointerDrag.source : null;
     const hovered = interactiveElementFromPoint(event.clientX, event.clientY, ignoredItem);
     const slot = hovered && hovered.closest("[data-shelf][data-slot]");
     const cell = payload.type === "equipment"
-      ? gridCellAtPoint(event.clientX, event.clientY)
+      ? equipmentCell
       : hovered && hovered.closest("[data-grid-x][data-grid-y]");
     const validSeedDrop = payload.type === "seed" && slot && slot.classList.contains("drop-target");
     const seedUnitId = pointerDrag.dropUnitId;
