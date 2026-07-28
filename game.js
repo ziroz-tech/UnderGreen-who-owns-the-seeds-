@@ -5211,7 +5211,56 @@ function findSupportRobotById(robotId) {
   return null;
 }
 
+function initialSupportRobotPosition(base) {
+  return {
+    x: Math.max(0, base.cols - 1),
+    y: Math.max(0, base.rows - 1)
+  };
+}
+
+function gridItemCoversCell(item, x, y) {
+  if (!item?.placed) return false;
+  const size = footprint(item);
+  return x >= item.x
+    && x < item.x + size.width
+    && y >= item.y
+    && y < item.y + size.height;
+}
+
+function nearestAvailablePositionExcluding(item, origin, excluded = []) {
+  const base = currentBase();
+  const size = footprint(item);
+  const excludedCells = new Set(excluded.map((position) => cellKey(position.x, position.y)));
+  const candidates = [];
+  for (let y = 0; y <= base.rows - size.height; y += 1) {
+    for (let x = 0; x <= base.cols - size.width; x += 1) {
+      if (excludedCells.has(cellKey(x, y))) continue;
+      candidates.push({ x, y });
+    }
+  }
+  candidates.sort((a, b) => {
+    const distanceA = Math.abs(a.x - origin.x) + Math.abs(a.y - origin.y);
+    const distanceB = Math.abs(b.x - origin.x) + Math.abs(b.y - origin.y);
+    return distanceA - distanceB || b.y - a.y || b.x - a.x;
+  });
+  return candidates.find((position) => canPlace(item, position.x, position.y, item.id)) || null;
+}
+
+function clearInitialSupportRobotCell(base, target) {
+  const pod = base.shelves.find((unit) => unit.type === "pod" && gridItemCoversCell(unit, target.x, target.y));
+  if (!pod) return;
+  pod.placed = false;
+  pod.x = null;
+  pod.y = null;
+  const position = nearestAvailablePositionExcluding({ ...pod, kind: "unit" }, target, [target]);
+  if (position) Object.assign(pod, position, { placed: true });
+}
 function preferredSupportRobotPosition(base, item) {
+  if (item.type === "support_robot" && item.isInitialSupportRobot) {
+    const target = initialSupportRobotPosition(base);
+    clearInitialSupportRobotCell(base, target);
+    return canPlace(item, target.x, target.y, item.id) ? target : null;
+  }
   const candidates = [
     { x: Math.min(base.cols - 1, 2), y: Math.min(base.rows - 1, 1) },
     { x: Math.min(base.cols - 1, 2), y: 0 },
@@ -7972,6 +8021,17 @@ function skipStoryComms() {
   }
 
   closeStoryComms(event.choices[0]?.id || "close");
+}
+
+function activatePendingCommsAfterStories() {
+  if (activeStory) return false;
+  if (!activeComms) {
+    pendingComms = pendingComms.filter(commsEntryStillValid);
+    activeComms = pendingComms.shift() || null;
+    persistCommsState();
+  }
+  renderComms();
+  return Boolean(activeComms);
 }
 
 function closeStoryComms(choiceId = "close") {
